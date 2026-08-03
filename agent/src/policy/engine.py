@@ -1,0 +1,185 @@
+"""As cinco regras que o modelo não decide.
+
+Funções puras: sem rede, sem relógio interno, sem banco. Todo dado necessário
+chega por parâmetro — inclusive `at`, que é o que torna cada regra testável em
+qualquer horário sem congelar o relógio do processo.
+
+P-1 cancelamento em cima da hora exige motivo    CANCEL_WINDOW_REQUIRES_REASON
+P-2 não remarca para o passado                   SLOT_IN_THE_PAST
+P-3 não remarca para horário ocupado             SLOT_CONFLICT
+P-4 não abre vaga fora do expediente             OUTSIDE_BUSINESS_HOURS
+P-5 teto de escritas por conversa                WRITE_QUOTA_EXCEEDED
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import yaml
+
+from .decision import ALLOWED, Decision
+
+RULES_PATH = Path(__file__).with_name("rules.yaml")
+
+
+@dataclass(frozen=True)
+class Janela:
+    """Intervalo ocupado na agenda de um profissional."""
+
+    consulta_id: str
+    profissional_id: str
+    inicio: datetime
+    fim: datetime
+
+
+class PolicyEngine:
+    def __init__(self, rules: dict | None = None) -> None:
+        self._rules = rules if rules is not None else yaml.safe_load(RULES_PATH.read_text("utf-8"))
+        self.version: str = self._rules["version"]
+        self._tz = ZoneInfo(self._rules["expediente"]["timezone"])
+
+    # -- P-1 ---------------------------------------------------------------------
+
+    def pode_cancelar(self, *, inicio: datetime, motivo: str, at: datetime) -> Decision:
+        cfg = self._rules["cancelamento"]
+        antecedencia = inicio - at
+        dentro_da_janela = antecedencia < timedelta(hours=cfg["janela_horas"])
+        motivo_ok = len(motivo.strip()) >= cfg["motivo_min_chars"]
+
+        payload = {
+            "inicio": inicio.isoformat(),
+            "at": at.isoformat(),
+            "horas_de_antecedencia": round(antecedencia.total_seconds() / 3600, 2),
+            "motivo_len": len(motivo.strip()),
+        }
+
+        if dentro_da_janela and not motivo_ok:
+            return Decision(
+                allowed=False,
+                reason_code="cancel_window_requires_reason",
+                explanation_hint=(
+                    "peça o motivo do cancelamento antes de seguir, sem explicar por que é preciso"
+                ),
+                audit_payload=payload,
+            )
+        return Decision(allowed=True, reason_code=ALLOWED, audit_payload=payload, explanation_hint="confirme o cancelamento")
+
+    # -- P-2 e P-3 ---------------------------------------------------------------
+
+    def pode_remarcar(
+        self,
+        *,
+        consulta_id: str,
+        profissional_id: str,
+        novo_inicio: datetime,
+        duracao: timedelta,
+        agenda: list[Janela],
+        at: datetime,
+    ) -> Decision:
+        novo_fim = novo_inicio + duracao
+        payload = {
+            "consulta_id": consulta_id,
+            "novo_inicio": novo_inicio.isoformat(),
+            "at": at.isoformat(),
+        }
+
+        if novo_inicio <= at:
+            return Decision(
+                allowed=False,
+                reason_code="slot_in_the_past",
+                explanation_hint="diga que esse horário já passou e ofereça outro",
+                audit_payload=payload,
+            )
+
+        for janela in agenda:
+            if janela.consulta_id == consulta_id or janela.profissional_id != profissional_id:
+                continue
+            if novo_inicio < janela.fim and janela.inicio < novo_fim:
+                return Decision(
+                    allowed=False,
+                    reason_code="slot_conflict",
+                    explanation_hint="diga que o horário está ocupado e ofereça outro",
+                    audit_payload={**payload, "conflita_com": janela.consulta_id},
+                )
+
+        return Decision(
+            allowed=True,
+            reason_code=ALLOWED,
+            value=novo_inicio,
+            explanation_hint="confirme a remarcação com o horário novo",
+            audit_payload=payload,
+        )
+
+    # -- P-4 ---------------------------------------------------------------------
+
+    def pode_abrir_vaga(self, *, inicio: datetime, duracao_min: int, at: datetime) -> Decision:
+        local = inicio.astimezone(self._tz)
+        fim_local = (inicio + timedelta(minutes=duracao_min)).astimezone(self._tz)
+        dia = self._rules["expediente"]["dias"].get(str(local.weekday()))
+
+        payload = {
+            "inicio": inicio.isoformat(),
+            "inicio_local": local.isoformat(),
+            "duracao_min": duracao_min,
+            "at": at.isoformat(),
+        }
+
+        if inicio <= at:
+            return Decision(
+                allowed=False,
+                reason_code="slot_in_the_past",
+                explanation_hint="diga que esse horário já passou e ofereça outro",
+                audit_payload=payload,
+            )
+
+        if dia is None:
+            return Decision(
+                allowed=False,
+                reason_code="outside_business_hours",
+                explanation_hint="diga que a clínica não atende nesse dia e ofereça outro",
+                audit_payload=payload,
+            )
+
+        abre = time.fromisoformat(dia["abre"])
+        fecha = time.fromisoformat(dia["fecha"])
+        # O atendimento inteiro precisa caber no expediente, não só o começo:
+        # abrir 17h50 de 60 minutos deixaria a clínica aberta até 18h50.
+        cabe = abre <= local.time() and fim_local.time() <= fecha and fim_local.date() == local.date()
+
+        if not cabe:
+            return Decision(
+                allowed=False,
+                reason_code="outside_business_hours",
+                explanation_hint="diga que o horário está fora do expediente e ofereça um dentro",
+                audit_payload=payload,
+            )
+
+        return Decision(
+            allowed=True,
+            reason_code=ALLOWED,
+            value=inicio,
+            explanation_hint="confirme a abertura do horário",
+            audit_payload=payload,
+        )
+
+    # -- P-5 ---------------------------------------------------------------------
+
+    def pode_escrever(self, *, escritas_na_conversa: int) -> Decision:
+        teto = self._rules["conversa"]["max_escritas"]
+        payload = {"escritas_na_conversa": escritas_na_conversa, "teto": teto}
+        if escritas_na_conversa >= teto:
+            return Decision(
+                allowed=False,
+                reason_code="write_quota_exceeded",
+                explanation_hint="diga que precisa passar para a recepção para continuar",
+                audit_payload=payload,
+            )
+        return Decision(
+            allowed=True,
+            reason_code=ALLOWED,
+            explanation_hint="siga normalmente",
+            audit_payload=payload,
+        )

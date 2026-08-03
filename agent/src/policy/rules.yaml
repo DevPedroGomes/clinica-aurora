@@ -1,0 +1,27 @@
+# Política da Clínica Aurora — versionada, nunca hardcoded (core-spec/policy.md §5).
+#
+# Mudar um número aqui muda o comportamento do agente sem tocar em código, e a
+# versão abaixo vai junto em cada linha do audit log: é assim que se prova, meses
+# depois, sob qual regra uma decisão foi tomada.
+version: "2026.08.1"
+
+cancelamento:
+  # Abaixo desta antecedência, cancelar exige motivo registrado.
+  janela_horas: 24
+  motivo_min_chars: 5
+
+expediente:
+  timezone: America/Bahia
+  # 0 = segunda ... 6 = domingo. Fora daqui, não se abre vaga.
+  dias:
+    "0": { abre: "08:00", fecha: "18:00" }
+    "1": { abre: "08:00", fecha: "18:00" }
+    "2": { abre: "08:00", fecha: "18:00" }
+    "3": { abre: "08:00", fecha: "18:00" }
+    "4": { abre: "08:00", fecha: "18:00" }
+    "5": { abre: "08:00", fecha: "12:00" }
+
+conversa:
+  # Teto de escritas por conversa. Não é regra de negócio da clínica: é freio de
+  # segurança. Um agente em loop escreve dezenas de vezes antes de alguém ver.
+  max_escritas: 3
