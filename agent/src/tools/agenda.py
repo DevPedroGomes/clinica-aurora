@@ -13,12 +13,24 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
 from ..adapters.erp import ConsultaView, ErpIndisponivel, ErpRecusou
 from ..policy.engine import Janela
 from .registry import AgentContext, ToolError, tool
+
+# A clínica tem UM fuso e é o dela. Interpretar "2026-08-05" no fuso do
+# servidor (UTC) faz meia-noite virar 21h do dia anterior — e a busca do dia
+# devolve vazio, que o agente reporta como "não há consultas". Bug silencioso
+# e caro: o meio-dia local mata o off-by-one sem depender de horário de verão.
+BAHIA = ZoneInfo("America/Bahia")
+
+
+def _dia_local(data: str) -> datetime:
+    return datetime.fromisoformat(f"{data}T12:00:00").replace(tzinfo=BAHIA)
+
 
 INDISPONIVEL = ToolError(
     code="erp_unavailable",
@@ -48,10 +60,15 @@ def _resumo(c: ConsultaView) -> dict[str, str]:
 
 
 class ListarAgendaInput(BaseModel):
-    profissional_id: Literal["prof_bruno", "prof_helena"] = Field(
-        description="Profissional da clínica. Obtido em profissionais."
+    profissional_id: Literal["prof_bruno", "prof_helena"] | None = Field(
+        default=None,
+        description="Profissional da clínica. Omita para ver a agenda dos dois.",
     )
-    data: str = Field(description="Dia a consultar, no formato YYYY-MM-DD.", pattern=r"^\d{4}-\d{2}-\d{2}$")
+    data: str | None = Field(
+        default=None,
+        description="Dia a consultar, YYYY-MM-DD. Omita para ver toda a agenda da clínica.",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
 
 
 @tool(
@@ -60,13 +77,19 @@ class ListarAgendaInput(BaseModel):
     requires_confirmation=False,
     rate_limit=10,
     pii_level="low",
-    description="Lista as consultas agendadas de um profissional em um dia.",
+    description=(
+        "Lista consultas agendadas. Sem filtros, devolve a agenda inteira da clínica — "
+        "use assim quando não souber o profissional ou o dia da consulta procurada."
+    ),
     input_model=ListarAgendaInput,
 )
 async def listar_agenda(ctx: AgentContext, data: ListarAgendaInput) -> dict | ToolError:
     try:
-        dia = datetime.fromisoformat(data.data).replace(tzinfo=ctx.at.tzinfo)
-        consultas = await ctx.erp.listar(profissional_id=data.profissional_id, data=dia, at=ctx.at)
+        consultas = await ctx.erp.listar(
+            profissional_id=data.profissional_id,
+            data=_dia_local(data.data) if data.data else None,
+            at=ctx.at,
+        )
     except ErpIndisponivel:
         return INDISPONIVEL
     except ErpRecusou as exc:
@@ -93,6 +116,7 @@ class RemarcarConsultaInput(BaseModel):
     pii_level="medium",
     description="Remarca uma consulta existente para um novo horário.",
     input_model=RemarcarConsultaInput,
+    confirm_fields=("consulta_id", "novo_inicio"),
 )
 async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> dict | ToolError:
     try:
@@ -108,7 +132,11 @@ async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> d
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
         if consulta is None:
             return ToolError(code="not_found", user_message="Não encontrei essa consulta na agenda.")
-        agenda = await ctx.erp.listar(profissional_id=consulta.profissional_id, data=novo_inicio, at=ctx.at)
+        agenda = await ctx.erp.listar(
+            profissional_id=consulta.profissional_id,
+            data=novo_inicio.astimezone(BAHIA),
+            at=ctx.at,
+        )
     except ErpIndisponivel:
         return INDISPONIVEL
 
@@ -157,7 +185,16 @@ async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> d
 
 class CancelarConsultaInput(BaseModel):
     consulta_id: str = Field(max_length=40, pattern=r"^cons_[0-9]+$")
-    motivo: str = Field(min_length=1, max_length=200, description="Motivo informado pelo paciente ou pela recepção.")
+    # Opcional DE PROPÓSITO. Quando o motivo é exigido é uma regra de negócio
+    # (P-1: cancelamento em cima da hora), e regra de negócio mora no motor de
+    # política, não no schema. Torná-lo obrigatório aqui duplicava a regra em
+    # dois lugares e — pior — escondia a decisão: o modelo pedia o motivo por
+    # conta própria e a política nunca chegava a rodar nem a registrar nada.
+    motivo: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Motivo do cancelamento, quando a pessoa informar.",
+    )
 
 
 @tool(
@@ -168,6 +205,7 @@ class CancelarConsultaInput(BaseModel):
     pii_level="medium",
     description="Cancela uma consulta agendada, registrando o motivo.",
     input_model=CancelarConsultaInput,
+    confirm_fields=("consulta_id",),
 )
 async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> dict | ToolError:
     try:
@@ -177,7 +215,7 @@ async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> d
     if consulta is None:
         return ToolError(code="not_found", user_message="Não encontrei essa consulta na agenda.")
 
-    decisao = ctx.policy.pode_cancelar(inicio=consulta.inicio, motivo=data.motivo, at=ctx.at)
+    decisao = ctx.policy.pode_cancelar(inicio=consulta.inicio, motivo=data.motivo or "", at=ctx.at)
     ctx.registrar(
         kind="policy_decision",
         tool="cancelar_consulta",
@@ -193,7 +231,7 @@ async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> d
         )
 
     try:
-        cancelada = await ctx.erp.cancelar(consulta.id, data.motivo, at=ctx.at)
+        cancelada = await ctx.erp.cancelar(consulta.id, data.motivo or "cancelado pela recepção", at=ctx.at)
     except ErpIndisponivel:
         return INDISPONIVEL
     except ErpRecusou as exc:
@@ -222,6 +260,7 @@ class AbrirVagaInput(BaseModel):
     pii_level="none",
     description="Abre um horário livre na agenda de um profissional.",
     input_model=AbrirVagaInput,
+    confirm_fields=("profissional_id", "inicio", "duracao_min"),
 )
 async def abrir_vaga(ctx: AgentContext, data: AbrirVagaInput) -> dict | ToolError:
     try:

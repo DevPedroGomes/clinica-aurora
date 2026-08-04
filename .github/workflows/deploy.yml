@@ -45,6 +45,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Placeholder de .env (o env_file do compose e lido no build)
+        run: touch .env
       - name: Build + push (dirigido pelo compose)
         run: |
           docker compose build

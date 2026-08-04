@@ -1,0 +1,115 @@
+"""A superfície pública: isolamento de sessão, rate limit e teto.
+
+Estes são os testes que importam numa demo aberta — não provam que o agente é
+inteligente, provam que um visitante mal-intencionado não custa caro.
+"""
+
+from __future__ import annotations
+
+import importlib
+
+import httpx
+import pytest
+import respx
+from fastapi.testclient import TestClient
+
+ERP = "http://erp:8080"
+
+
+@pytest.fixture
+def api(monkeypatch, tmp_path):
+    monkeypatch.setenv("BUDGET_PATH", str(tmp_path / "budget.json"))
+    monkeypatch.setenv("DAILY_TURN_CAP", "3")
+    monkeypatch.setenv("DEMO_KILL_SWITCH", "0")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-teste")
+    import src.budget
+    import src.api
+
+    importlib.reload(src.budget)
+    mod = importlib.reload(src.api)
+
+    class AgenteFalso:
+        async def turno(self, conv, texto, ctx):
+            from src.agent import Evento
+
+            ctx.escritas_realizadas += 1
+            yield Evento("message", {"texto": f"ok: {texto}"})
+
+    mod.agente = AgenteFalso()
+    return mod
+
+
+def cliente(api) -> TestClient:
+    return TestClient(api.app)
+
+
+def test_health_exibe_modelo_e_prompt_versionado(api):
+    r = cliente(api).get("/health")
+    assert r.status_code == 200
+    assert r.json()["prompt"].startswith("clinica-aurora/system@")
+
+
+def test_mensagem_vazia_e_gigante_sao_recusadas(api):
+    c = cliente(api)
+    assert c.post("/api/chat", json={"mensagem": "   "}).status_code == 400
+    assert c.post("/api/chat", json={"mensagem": "a" * 5000}).status_code == 400
+
+
+def test_cada_visitante_recebe_o_proprio_tenant(api):
+    with respx.mock:
+        rota = respx.get(f"{ERP}/admin/estado").mock(
+            return_value=httpx.Response(200, json={"down": False, "consultas": []})
+        )
+        cliente(api).get("/api/estado")
+        cliente(api).get("/api/estado")  # cliente novo = cookie novo
+
+    tenants = {c.request.headers["X-Tenant-Id"] for c in rota.calls}
+    assert len(tenants) == 2
+
+
+def test_conversa_continua_na_mesma_sessao(api):
+    c = cliente(api)
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(
+            return_value=httpx.Response(200, json={"down": False, "consultas": []})
+        )
+        c.post("/api/chat", json={"mensagem": "oi"})
+        estado = c.get("/api/estado").json()
+    assert estado["conversa"]["escritas"] == 1
+
+
+def test_teto_diario_bloqueia_com_recado_humano(api):
+    c = cliente(api)
+    for _ in range(3):
+        assert c.post("/api/chat", json={"mensagem": "oi"}).status_code == 200
+    r = c.post("/api/chat", json={"mensagem": "oi"})
+    assert r.status_code == 503
+    assert "amanhã" in r.json()["detail"]
+
+
+def test_rate_limit_por_ip_real(api, monkeypatch):
+    monkeypatch.setattr(api, "RATE_POR_IP", 2)
+    c = cliente(api)
+    cab = {"x-real-ip": "203.0.113.7"}
+    assert c.post("/api/chat", json={"mensagem": "a"}, headers=cab).status_code == 200
+    assert c.post("/api/chat", json={"mensagem": "b"}, headers=cab).status_code == 200
+    assert c.post("/api/chat", json={"mensagem": "c"}, headers=cab).status_code == 429
+
+
+def test_sem_x_real_ip_todos_caem_no_mesmo_balde(api, monkeypatch):
+    """Requisição sem o header do Traefik não ganha cota nova — bucket hostil."""
+    monkeypatch.setattr(api, "RATE_POR_IP", 1)
+    assert cliente(api).post("/api/chat", json={"mensagem": "a"}).status_code == 200
+    assert cliente(api).post("/api/chat", json={"mensagem": "b"}).status_code == 429
+
+
+def test_chaos_vai_para_o_tenant_da_sessao(api):
+    c = cliente(api)
+    with respx.mock:
+        rota = respx.post(f"{ERP}/admin/chaos").mock(return_value=httpx.Response(200, json={"down": True}))
+        respx.get(f"{ERP}/admin/estado").mock(
+            return_value=httpx.Response(200, json={"down": True, "consultas": []})
+        )
+        c.get("/api/estado")
+        c.post("/api/chaos?ligado=true")
+    assert rota.calls.last.request.headers["X-Tenant-Id"].startswith("demo-")

@@ -6,7 +6,7 @@ permissiva demais (core-spec/tools.md).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -254,3 +254,56 @@ async def test_escrita_bem_sucedida_gera_linha_de_write_no_audit(ctx: AgentConte
         ctx, RemarcarConsultaInput(consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00-03:00")
     )
     assert [e.kind for e in ctx.audit] == ["policy_decision", "write"]
+
+
+async def test_listar_sem_profissional_ve_a_agenda_toda(ctx: AgentContext):
+    """Quem liga na recepção diz "a consulta da Ana", não o id do profissional."""
+    out = await listar_agenda(ctx, ListarAgendaInput(data="2026-08-11"))
+    assert {c["consulta_id"] for c in out["consultas"]} == {"cons_1", "cons_2"}
+
+
+async def test_dia_e_interpretado_no_fuso_da_clinica(ctx: AgentContext, erp: ErpFake):
+    """O bug que o LLM real encontrou: 'YYYY-MM-DD' virava 21h do dia anterior.
+
+    O relógio do processo é UTC; a agenda é de Salvador. Interpretar a data no
+    fuso errado devolvia lista vazia, e o agente reportava com toda a confiança
+    'não há consultas amanhã' — errado, sem nenhum erro no caminho.
+    """
+    ctx.at = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    out = await listar_agenda(ctx, ListarAgendaInput(profissional_id="prof_bruno", data="2026-08-11"))
+    assert [c["consulta_id"] for c in out["consultas"]] == ["cons_1", "cons_2"]
+
+
+async def test_listar_sem_filtro_nenhum_mostra_a_agenda_inteira(ctx: AgentContext):
+    """Ninguém liga na recepção dizendo o dia e o profissional.
+
+    O pedido real é "a consulta do João". Exigir os dois filtros fazia o agente
+    interrogar a pessoa em vez de simplesmente olhar a agenda — visível no teste
+    com o modelo real, invisível em teste de unidade de tool isolada.
+    """
+    out = await listar_agenda(ctx, ListarAgendaInput())
+    assert {c["consulta_id"] for c in out["consultas"]} == {"cons_1", "cons_2", "cons_3"}
+
+
+async def test_cancelar_sem_motivo_dentro_da_janela_deixa_a_politica_decidir(
+    ctx: AgentContext, erp: ErpFake
+):
+    """A recusa tem que vir do motor, com reason_code — não do schema.
+
+    Com `motivo` obrigatório no Pydantic, o modelo pedia o motivo sozinho e a
+    política nunca rodava: a demo perdia justamente o momento em que se vê que
+    quem recusou foi a regra, não o modelo.
+    """
+    out = await cancelar_consulta(ctx, CancelarConsultaInput(consulta_id="cons_3"))
+    assert isinstance(out, ToolError)
+    assert out.code == "cancel_window_requires_reason"
+    assert erp.consultas["cons_3"].status == "agendada"
+    assert [e.reason_code for e in ctx.audit if e.kind == "policy_decision"] == [
+        "cancel_window_requires_reason"
+    ]
+
+
+async def test_cancelar_sem_motivo_fora_da_janela_passa(ctx: AgentContext, erp: ErpFake):
+    out = await cancelar_consulta(ctx, CancelarConsultaInput(consulta_id="cons_1"))
+    assert erp.consultas["cons_1"].status == "cancelada"
+    assert out["consulta_id"] == "cons_1"

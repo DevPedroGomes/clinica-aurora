@@ -43,6 +43,53 @@ services:
       - "traefik.http.middlewares.aurora-erp-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.aurora-erp-security.headers.frameDeny=true"
 
+  agente:
+    image: ghcr.io/devpedrogomes/clinica-aurora/agente:latest
+    build:
+      context: ./agent
+    container_name: aurora-agente
+    restart: unless-stopped
+    depends_on:
+      - erp
+    env_file: .env
+    environment:
+      ERP_URL: "http://erp:8080"
+      BUDGET_PATH: "/data/budget.json"
+    volumes:
+      - aurora_budget:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.aurora.entrypoints=https"
+      - "traefik.http.routers.aurora.rule=Host(`aurora.pgdev.com.br`)"
+      - "traefik.http.routers.aurora.tls=true"
+      - "traefik.http.routers.aurora.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.aurora.middlewares=aurora-security@docker"
+      - "traefik.http.services.aurora.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.aurora-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.aurora-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.aurora-security.headers.stsPreload=true"
+      - "traefik.http.middlewares.aurora-security.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.aurora-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.aurora-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.aurora-security.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.aurora-security.headers.frameDeny=true"
+
+volumes:
+  aurora_budget:
+
 networks:
   proxy:
     external: true
