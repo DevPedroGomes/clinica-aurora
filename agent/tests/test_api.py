@@ -43,10 +43,10 @@ def cliente(api) -> TestClient:
     return TestClient(api.app)
 
 
-def test_health_exibe_modelo_e_prompt_versionado(api):
+def test_health_prova_que_o_processo_esta_de_pe(api):
     r = cliente(api).get("/health")
     assert r.status_code == 200
-    assert r.json()["prompt"].startswith("clinica-aurora/system@")
+    assert r.json()["status"] == "ok"
 
 
 def test_mensagem_vazia_e_gigante_sao_recusadas(api):
@@ -113,3 +113,19 @@ def test_chaos_vai_para_o_tenant_da_sessao(api):
         c.get("/api/estado")
         c.post("/api/chaos?ligado=true")
     assert rota.calls.last.request.headers["X-Tenant-Id"].startswith("demo-")
+
+
+def test_health_nao_conta_quanto_sobrou_do_teto(api):
+    """Saldo do teto diário é número operacional — e dica de abuso.
+
+    Publicar "restam 111" numa rota aberta diz a qualquer visitante exatamente
+    quanto falta para derrubar a demo do dia.
+    """
+    corpo = cliente(api).get("/health").json()
+    assert set(corpo) == {"status", "model"}
+
+
+def test_schema_da_api_interna_nao_fica_publico(api):
+    """Desligar /docs não desliga /openapi.json — e ele entrega /api/chaos,
+    /api/reset e todos os parâmetros de bandeja."""
+    assert cliente(api).get("/openapi.json").status_code == 404

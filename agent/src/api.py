@@ -40,7 +40,7 @@ JANELA_RATE = 600
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
-app = FastAPI(title="Clínica Aurora — demo", docs_url=None, redoc_url=None)
+app = FastAPI(title="Clínica Aurora — demo", docs_url=None, redoc_url=None, openapi_url=None)
 agente = Agente()
 
 
@@ -111,8 +111,8 @@ def _sse(tipo: str, dado: dict) -> str:
 
 
 @app.get("/health")
-def health() -> dict[str, object]:
-    return {"status": "ok", "model": MODEL, "prompt": PROMPT_ID, "restante_hoje": budget.restante()}
+def health() -> dict[str, str]:
+    return {"status": "ok", "model": MODEL}
 
 
 @app.post("/api/chat")

@@ -105,7 +105,7 @@
 
 <main class="tela">
   <section class="col">
-    <div class="cabeca"><span>Conversa · recepção da clínica</span><span id="estado">greeting</span></div>
+    <div class="cabeca"><span>Conversa · recepção da clínica</span><span id="estado">início</span></div>
     <div class="chat" id="chat">
       <div class="bolha ela">Oi! Sou a assistente da recepção. Posso consultar a agenda, remarcar, cancelar e abrir horários. O que você precisa?</div>
     </div>
@@ -141,6 +141,19 @@
 const $ = (s) => document.querySelector(s);
 const chat = $("#chat"), log = $("#log"), agenda = $("#agenda");
 let ultimoEstadoAgenda = new Map();
+
+// O estado da conversa é prova de que existe uma máquina explícita por trás —
+// mas o visitante não fala o vocabulário dela. O valor técnico fica no title,
+// para quem quiser inspecionar.
+const ESTADOS = {
+  greeting: "início",
+  qualifying: "entendendo o pedido",
+  collecting: "coletando os dados",
+  confirming: "aguardando sua confirmação",
+  executing: "executando",
+  resolved: "concluído",
+  escalated: "passou para uma pessoa",
+};
 
 const SUGESTOES = [
   "quantas consultas o Dr. Bruno tem amanhã?",
@@ -187,7 +200,9 @@ async function carregarAgenda() {
     const d = await r.json();
     $("#erpstatus").textContent = d.down ? "fora do ar (503)" : "no ar";
     $("#erpstatus").style.color = d.down ? "var(--erro)" : "";
-    $("#estado").textContent = d.conversa?.escalada ? "escalated · " + d.conversa.escalada : d.conversa?.estado || "";
+    const st = d.conversa?.estado || "";
+    $("#estado").textContent = ESTADOS[st] || st;
+    $("#estado").title = d.conversa?.escalada ? `${st} · ${d.conversa.escalada}` : st;
     $("#chaos").setAttribute("aria-pressed", String(!!d.down));
 
     agenda.innerHTML = "";
@@ -265,7 +280,8 @@ function renderizar(tipo, d) {
       bolha(d.texto, "ela");
       break;
     case "state":
-      $("#estado").textContent = d.estado + (d.motivo ? " · " + d.motivo : "");
+      $("#estado").textContent = ESTADOS[d.estado] || d.estado;
+      $("#estado").title = d.estado + (d.motivo ? " · " + d.motivo : "");
       break;
     case "tool_call":
       evento(d.scope === "write" ? "tool · write" : "tool · read",
