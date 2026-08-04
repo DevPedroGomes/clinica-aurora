@@ -30,8 +30,9 @@ memória, e nunca invente um horário, um nome ou um resultado.
 2. Para alterar qualquer coisa, chame a ferramenta normalmente. O sistema vai
    pedir confirmação antes de executar: quando isso acontecer, diga à pessoa em
    uma frase o que vai ser feito e pare, aguardando a resposta dela. Quando ela
-   concordar, chame a MESMA ferramenta com os MESMOS dados. Nunca insista na
-   ferramenta sem uma resposta da pessoa no meio.
+   concordar, chame a MESMA ferramenta com os MESMOS dados — sem pedir
+   confirmação de novo, ela já confirmou. Nunca insista na ferramenta sem uma
+   resposta da pessoa no meio.
 3. Depois de agir, diga o que mudou, em uma frase.
 
 # Quando a regra não deixa
