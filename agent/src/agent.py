@@ -25,7 +25,12 @@ from anthropic import AsyncAnthropic
 
 from .flows.state_machine import Conversation, State
 from .prompts.system import PROMPT_ID, system_blocks
-from .tools.agenda import abrir_vaga, cancelar_consulta, listar_agenda, remarcar_consulta
+from .tools.agenda import (
+    abrir_vaga,
+    cancelar_consulta,
+    listar_agenda,
+    remarcar_consulta,
+)
 from .tools.registry import REGISTRY, AgentContext, ToolError, schema_para_anthropic
 
 # Modelo de conversa da arquitetura de referência (docs/03-arquitetura.md).
@@ -75,7 +80,9 @@ class Agente:
         self, conv: Conversation, texto_do_usuario: str, ctx: AgentContext
     ) -> AsyncIterator[Evento]:
         if conv.state is State.ESCALATED:
-            yield Evento("escalated", {"motivo": conv.escalation_reason, "ja_estava": True})
+            yield Evento(
+                "escalated", {"motivo": conv.escalation_reason, "ja_estava": True}
+            )
             return
 
         gatilho = conv.registrar_turno()
@@ -84,7 +91,9 @@ class Agente:
             yield Evento("escalated", {"motivo": gatilho})
             return
 
-        conv.historico.append({"role": "user", "content": _com_contexto(texto_do_usuario, ctx)})
+        conv.historico.append(
+            {"role": "user", "content": _com_contexto(texto_do_usuario, ctx)}
+        )
         if conv.state is State.GREETING:
             conv.transicionar(State.QUALIFYING)
         yield Evento("state", {"estado": conv.state.value})
@@ -109,14 +118,22 @@ class Agente:
                 )
             except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
                 conv.escalar("tool_failure_repeated")
-                yield Evento("error", {"mensagem": "O assistente está indisponível agora."})
-                yield Evento("escalated", {"motivo": "tool_failure_repeated", "detalhe": type(exc).__name__})
+                yield Evento(
+                    "error", {"mensagem": "O assistente está indisponível agora."}
+                )
+                yield Evento(
+                    "escalated",
+                    {"motivo": "tool_failure_repeated", "detalhe": type(exc).__name__},
+                )
                 return
 
             if resposta.stop_reason == "refusal":
                 # O modelo recusou por segurança. Não insista: escale.
                 conv.escalar("out_of_scope")
-                yield Evento("message", {"texto": "Não consigo ajudar com isso. Vou chamar a recepção."})
+                yield Evento(
+                    "message",
+                    {"texto": "Não consigo ajudar com isso. Vou chamar a recepção."},
+                )
                 yield Evento("escalated", {"motivo": "out_of_scope"})
                 return
 
@@ -159,18 +176,27 @@ class Agente:
     ) -> AsyncIterator[Evento]:
         spec = REGISTRY.get(chamada.name)
         if spec is None:
-            resultados.append(_erro(chamada.id, "tool_desconhecida", "Não consigo fazer isso."))
+            resultados.append(
+                _erro(chamada.id, "tool_desconhecida", "Não consigo fazer isso.")
+            )
             return
 
         try:
             entrada = spec.input_model(**chamada.input)
         except Exception:  # noqa: BLE001 — schema inválido é dado do modelo, não exceção do sistema
             resultados.append(
-                _erro(chamada.id, "input_invalido", "Não entendi os detalhes. Pode repetir?")
+                _erro(
+                    chamada.id,
+                    "input_invalido",
+                    "Não entendi os detalhes. Pode repetir?",
+                )
             )
             return
 
-        yield Evento("tool_call", {"tool": spec.name, "scope": spec.scope, "input": chamada.input})
+        yield Evento(
+            "tool_call",
+            {"tool": spec.name, "scope": spec.scope, "input": chamada.input},
+        )
 
         if spec.scope == "write":
             sig = assinatura(spec.name, entrada.model_dump(mode="json"))
@@ -180,7 +206,10 @@ class Agente:
             if spec.requires_confirmation and sig not in ctx.confirmacoes:
                 ctx.propostas_do_turno.add(sig)
                 conv.avancar(State.CONFIRMING)
-                yield Evento("state", {"estado": conv.state.value, "motivo": "aguardando confirmação"})
+                yield Evento(
+                    "state",
+                    {"estado": conv.state.value, "motivo": "aguardando confirmação"},
+                )
                 resultados.append(
                     _erro(
                         chamada.id,
@@ -190,7 +219,9 @@ class Agente:
                 )
                 return
 
-            decisao_quota = ctx.policy.pode_escrever(escritas_na_conversa=ctx.escritas_realizadas)
+            decisao_quota = ctx.policy.pode_escrever(
+                escritas_na_conversa=ctx.escritas_realizadas
+            )
             ctx.registrar(
                 kind="policy_decision",
                 tool=spec.name,
@@ -209,7 +240,11 @@ class Agente:
             if not decisao_quota.allowed:
                 conv.escalar("policy_denied_twice")
                 resultados.append(
-                    _erro(chamada.id, decisao_quota.reason_code, "Preciso passar para a recepção para continuar.")
+                    _erro(
+                        chamada.id,
+                        decisao_quota.reason_code,
+                        "Preciso passar para a recepção para continuar.",
+                    )
                 )
                 return
 
@@ -231,7 +266,9 @@ class Agente:
                 )
 
         if isinstance(saida, ToolError):
-            resultados.append(_erro(chamada.id, saida.code, saida.user_message, saida.retry_hint))
+            resultados.append(
+                _erro(chamada.id, saida.code, saida.user_message, saida.retry_hint)
+            )
             gatilho = (
                 conv.registrar_falha_de_tool()
                 if saida.code in {"erp_unavailable", "erp_rejected"}
@@ -246,7 +283,9 @@ class Agente:
 
         conv.registrar_sucesso()
         if spec.scope == "write":
-            ctx.confirmacoes.discard(assinatura(spec.name, entrada.model_dump(mode="json")))
+            ctx.confirmacoes.discard(
+                assinatura(spec.name, entrada.model_dump(mode="json"))
+            )
             yield Evento("write", {"tool": spec.name, "resultado": saida})
             conv.avancar(State.RESOLVED)
             yield Evento("state", {"estado": conv.state.value})
@@ -254,7 +293,11 @@ class Agente:
             yield Evento("tool_result", {"tool": spec.name, "resultado": saida})
 
         resultados.append(
-            {"type": "tool_result", "tool_use_id": chamada.id, "content": json.dumps(saida, ensure_ascii=False)}
+            {
+                "type": "tool_result",
+                "tool_use_id": chamada.id,
+                "content": json.dumps(saida, ensure_ascii=False),
+            }
         )
 
 

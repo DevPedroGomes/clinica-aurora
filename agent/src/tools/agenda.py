@@ -12,7 +12,7 @@ confirmação para algo que não aconteceu.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
@@ -40,7 +40,12 @@ INDISPONIVEL = ToolError(
 
 def _janelas(consultas: list[ConsultaView]) -> list[Janela]:
     return [
-        Janela(consulta_id=c.id, profissional_id=c.profissional_id, inicio=c.inicio, fim=c.fim)
+        Janela(
+            consulta_id=c.id,
+            profissional_id=c.profissional_id,
+            inicio=c.inicio,
+            fim=c.fim,
+        )
         for c in consultas
         if c.status == "agendada"
     ]
@@ -83,7 +88,9 @@ class ListarAgendaInput(BaseModel):
     ),
     input_model=ListarAgendaInput,
 )
-async def listar_agenda(ctx: AgentContext, data: ListarAgendaInput) -> dict | ToolError:
+async def listar_agenda(
+    ctx: AgentContext, data: ListarAgendaInput
+) -> dict[str, Any] | ToolError:
     try:
         consultas = await ctx.erp.listar(
             profissional_id=data.profissional_id,
@@ -93,10 +100,20 @@ async def listar_agenda(ctx: AgentContext, data: ListarAgendaInput) -> dict | To
     except ErpIndisponivel:
         return INDISPONIVEL
     except ErpRecusou as exc:
-        return ToolError(code="erp_rejected", user_message="Não consegui consultar essa agenda.", retry_hint=exc.detail)
+        return ToolError(
+            code="erp_rejected",
+            user_message="Não consegui consultar essa agenda.",
+            retry_hint=exc.detail,
+        )
 
     saida = {"consultas": [_resumo(c) for c in consultas]}
-    ctx.registrar(kind="tool_call", tool="listar_agenda", input=data.model_dump(), output=saida, reason_code=None)
+    ctx.registrar(
+        kind="tool_call",
+        tool="listar_agenda",
+        input=data.model_dump(),
+        output=saida,
+        reason_code=None,
+    )
     return saida
 
 
@@ -104,7 +121,11 @@ async def listar_agenda(ctx: AgentContext, data: ListarAgendaInput) -> dict | To
 
 
 class RemarcarConsultaInput(BaseModel):
-    consulta_id: str = Field(max_length=40, pattern=r"^cons_[0-9]+$", description="Id da consulta, obtido em listar_agenda.")
+    consulta_id: str = Field(
+        max_length=40,
+        pattern=r"^cons_[0-9]+$",
+        description="Id da consulta, obtido em listar_agenda.",
+    )
     novo_inicio: str = Field(description="Novo início, ISO 8601 com timezone.")
 
 
@@ -118,11 +139,16 @@ class RemarcarConsultaInput(BaseModel):
     input_model=RemarcarConsultaInput,
     confirm_fields=("consulta_id", "novo_inicio"),
 )
-async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> dict | ToolError:
+async def remarcar_consulta(
+    ctx: AgentContext, data: RemarcarConsultaInput
+) -> dict[str, Any] | ToolError:
     try:
         novo_inicio = datetime.fromisoformat(data.novo_inicio)
     except ValueError:
-        return ToolError(code="invalid_datetime", user_message="Não entendi o horário. Pode repetir com o dia e a hora?")
+        return ToolError(
+            code="invalid_datetime",
+            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+        )
     if novo_inicio.tzinfo is None:
         novo_inicio = novo_inicio.replace(tzinfo=ctx.at.tzinfo)
 
@@ -131,7 +157,9 @@ async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> d
         # tenant da sessão é o que impede ler ou escrever na agenda de outro.
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
         if consulta is None:
-            return ToolError(code="not_found", user_message="Não encontrei essa consulta na agenda.")
+            return ToolError(
+                code="not_found", user_message="Não encontrei essa consulta na agenda."
+            )
         agenda = await ctx.erp.listar(
             profissional_id=consulta.profissional_id,
             data=novo_inicio.astimezone(BAHIA),
@@ -139,6 +167,15 @@ async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> d
         )
     except ErpIndisponivel:
         return INDISPONIVEL
+    except ErpRecusou as exc:
+        # A LEITURA também pode ser recusada — 429 do rate limit, 400 de filtro.
+        # Sem este ramo a exceção escapava da tool inteira: o agente não escalava,
+        # o audit não registrava nada, e o visitante via um erro genérico.
+        return ToolError(
+            code="erp_rejected",
+            user_message="Não consegui consultar a agenda para checar o horário.",
+            retry_hint=exc.detail,
+        )
 
     decisao = ctx.policy.pode_remarcar(
         consulta_id=consulta.id,
@@ -172,11 +209,21 @@ async def remarcar_consulta(ctx: AgentContext, data: RemarcarConsultaInput) -> d
         # O ponto inteiro da demo: falhou a escrita, o agente não inventa.
         return INDISPONIVEL
     except ErpRecusou as exc:
-        return ToolError(code="erp_rejected", user_message="A agenda recusou essa alteração.", retry_hint=exc.detail)
+        return ToolError(
+            code="erp_rejected",
+            user_message="A agenda recusou essa alteração.",
+            retry_hint=exc.detail,
+        )
 
     ctx.escritas_realizadas += 1
     saida = {**_resumo(atualizada), "inicio_anterior": inicio_anterior}
-    ctx.registrar(kind="write", tool="remarcar_consulta", input=data.model_dump(), output=saida, reason_code="allowed")
+    ctx.registrar(
+        kind="write",
+        tool="remarcar_consulta",
+        input=data.model_dump(),
+        output=saida,
+        reason_code="allowed",
+    )
     return saida
 
 
@@ -207,15 +254,21 @@ class CancelarConsultaInput(BaseModel):
     input_model=CancelarConsultaInput,
     confirm_fields=("consulta_id",),
 )
-async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> dict | ToolError:
+async def cancelar_consulta(
+    ctx: AgentContext, data: CancelarConsultaInput
+) -> dict[str, Any] | ToolError:
     try:
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
     except ErpIndisponivel:
         return INDISPONIVEL
     if consulta is None:
-        return ToolError(code="not_found", user_message="Não encontrei essa consulta na agenda.")
+        return ToolError(
+            code="not_found", user_message="Não encontrei essa consulta na agenda."
+        )
 
-    decisao = ctx.policy.pode_cancelar(inicio=consulta.inicio, motivo=data.motivo or "", at=ctx.at)
+    decisao = ctx.policy.pode_cancelar(
+        inicio=consulta.inicio, motivo=data.motivo or "", at=ctx.at
+    )
     ctx.registrar(
         kind="policy_decision",
         tool="cancelar_consulta",
@@ -231,15 +284,27 @@ async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> d
         )
 
     try:
-        cancelada = await ctx.erp.cancelar(consulta.id, data.motivo or "cancelado pela recepção", at=ctx.at)
+        cancelada = await ctx.erp.cancelar(
+            consulta.id, data.motivo or "cancelado pela recepção", at=ctx.at
+        )
     except ErpIndisponivel:
         return INDISPONIVEL
     except ErpRecusou as exc:
-        return ToolError(code="erp_rejected", user_message="A agenda recusou o cancelamento.", retry_hint=exc.detail)
+        return ToolError(
+            code="erp_rejected",
+            user_message="A agenda recusou o cancelamento.",
+            retry_hint=exc.detail,
+        )
 
     ctx.escritas_realizadas += 1
     saida = _resumo(cancelada)
-    ctx.registrar(kind="write", tool="cancelar_consulta", input=data.model_dump(), output=saida, reason_code="allowed")
+    ctx.registrar(
+        kind="write",
+        tool="cancelar_consulta",
+        input=data.model_dump(),
+        output=saida,
+        reason_code="allowed",
+    )
     return saida
 
 
@@ -249,7 +314,9 @@ async def cancelar_consulta(ctx: AgentContext, data: CancelarConsultaInput) -> d
 class AbrirVagaInput(BaseModel):
     profissional_id: Literal["prof_bruno", "prof_helena"]
     inicio: str = Field(description="Início da vaga, ISO 8601 com timezone.")
-    duracao_min: Literal[30, 45, 60] = Field(description="Domínio fechado: 30, 45 ou 60.")
+    duracao_min: Literal[30, 45, 60] = Field(
+        description="Domínio fechado: 30, 45 ou 60."
+    )
 
 
 @tool(
@@ -262,15 +329,22 @@ class AbrirVagaInput(BaseModel):
     input_model=AbrirVagaInput,
     confirm_fields=("profissional_id", "inicio", "duracao_min"),
 )
-async def abrir_vaga(ctx: AgentContext, data: AbrirVagaInput) -> dict | ToolError:
+async def abrir_vaga(
+    ctx: AgentContext, data: AbrirVagaInput
+) -> dict[str, Any] | ToolError:
     try:
         inicio = datetime.fromisoformat(data.inicio)
     except ValueError:
-        return ToolError(code="invalid_datetime", user_message="Não entendi o horário. Pode repetir com o dia e a hora?")
+        return ToolError(
+            code="invalid_datetime",
+            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+        )
     if inicio.tzinfo is None:
         inicio = inicio.replace(tzinfo=ctx.at.tzinfo)
 
-    decisao = ctx.policy.pode_abrir_vaga(inicio=inicio, duracao_min=data.duracao_min, at=ctx.at)
+    decisao = ctx.policy.pode_abrir_vaga(
+        inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
+    )
     ctx.registrar(
         kind="policy_decision",
         tool="abrir_vaga",
@@ -286,11 +360,17 @@ async def abrir_vaga(ctx: AgentContext, data: AbrirVagaInput) -> dict | ToolErro
         )
 
     try:
-        vaga = await ctx.erp.abrir_vaga(data.profissional_id, inicio, data.duracao_min, at=ctx.at)
+        vaga = await ctx.erp.abrir_vaga(
+            data.profissional_id, inicio, data.duracao_min, at=ctx.at
+        )
     except ErpIndisponivel:
         return INDISPONIVEL
     except ErpRecusou as exc:
-        return ToolError(code="erp_rejected", user_message="A agenda recusou esse horário.", retry_hint=exc.detail)
+        return ToolError(
+            code="erp_rejected",
+            user_message="A agenda recusou esse horário.",
+            retry_hint=exc.detail,
+        )
 
     ctx.escritas_realizadas += 1
     saida = {
@@ -299,5 +379,11 @@ async def abrir_vaga(ctx: AgentContext, data: AbrirVagaInput) -> dict | ToolErro
         "inicio": vaga.inicio.isoformat(),
         "fim": (inicio + timedelta(minutes=data.duracao_min)).isoformat(),
     }
-    ctx.registrar(kind="write", tool="abrir_vaga", input=data.model_dump(), output=saida, reason_code="allowed")
+    ctx.registrar(
+        kind="write",
+        tool="abrir_vaga",
+        input=data.model_dump(),
+        output=saida,
+        reason_code="allowed",
+    )
     return saida

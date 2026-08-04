@@ -49,7 +49,9 @@ async def client():
 
 @respx.mock
 async def test_tenant_vai_no_header_de_todo_request(client: httpx.AsyncClient):
-    rota = respx.get(f"{BASE}/consultas").mock(return_value=httpx.Response(200, json=[CONSULTA_JSON]))
+    rota = respx.get(f"{BASE}/consultas").mock(
+        return_value=httpx.Response(200, json=[CONSULTA_JSON])
+    )
     await adapter(client).listar(at=AGORA)
     assert rota.calls.last.request.headers["X-Tenant-Id"] == "t1"
 
@@ -67,7 +69,9 @@ async def test_leitura_repete_uma_vez_em_5xx(client: httpx.AsyncClient):
 @respx.mock
 async def test_escrita_nunca_repete(client: httpx.AsyncClient):
     """Retry em escrita gera consulta duplicada — docs/06-adapters §2."""
-    rota = respx.patch(f"{BASE}/consultas/cons_1").mock(return_value=httpx.Response(503))
+    rota = respx.patch(f"{BASE}/consultas/cons_1").mock(
+        return_value=httpx.Response(503)
+    )
     with pytest.raises(ErpIndisponivel):
         await adapter(client).remarcar("cons_1", AGORA + timedelta(days=1), at=AGORA)
     assert rota.call_count == 1
@@ -76,7 +80,9 @@ async def test_escrita_nunca_repete(client: httpx.AsyncClient):
 @respx.mock
 async def test_4xx_e_recusa_do_sistema_nao_indisponibilidade(client: httpx.AsyncClient):
     respx.patch(f"{BASE}/consultas/cons_1").mock(
-        return_value=httpx.Response(409, json={"detail": "Horário já ocupado para este profissional."})
+        return_value=httpx.Response(
+            409, json={"detail": "Horário já ocupado para este profissional."}
+        )
     )
     a = adapter(client)
     with pytest.raises(ErpRecusou) as exc:
@@ -88,7 +94,9 @@ async def test_4xx_e_recusa_do_sistema_nao_indisponibilidade(client: httpx.Async
 
 @respx.mock
 async def test_404_em_obter_vira_none(client: httpx.AsyncClient):
-    respx.get(f"{BASE}/consultas/cons_x").mock(return_value=httpx.Response(404, json={"detail": "não encontrada"}))
+    respx.get(f"{BASE}/consultas/cons_x").mock(
+        return_value=httpx.Response(404, json={"detail": "não encontrada"})
+    )
     assert await adapter(client).obter("cons_x", at=AGORA) is None
 
 
@@ -104,7 +112,9 @@ async def test_tres_falhas_abrem_o_circuito(client: httpx.AsyncClient):
 
 @respx.mock
 async def test_circuito_aberto_falha_sem_bater_no_sistema(client: httpx.AsyncClient):
-    rota = respx.patch(f"{BASE}/consultas/cons_1").mock(return_value=httpx.Response(503))
+    rota = respx.patch(f"{BASE}/consultas/cons_1").mock(
+        return_value=httpx.Response(503)
+    )
     a = adapter(client)
     for _ in range(3):
         with pytest.raises(ErpIndisponivel):
@@ -119,7 +129,12 @@ async def test_circuito_aberto_falha_sem_bater_no_sistema(client: httpx.AsyncCli
 @respx.mock
 async def test_circuito_reabre_depois_da_janela(client: httpx.AsyncClient):
     respx.patch(f"{BASE}/consultas/cons_1").mock(
-        side_effect=[httpx.Response(503), httpx.Response(503), httpx.Response(503), httpx.Response(200, json=CONSULTA_JSON)]
+        side_effect=[
+            httpx.Response(503),
+            httpx.Response(503),
+            httpx.Response(503),
+            httpx.Response(200, json=CONSULTA_JSON),
+        ]
     )
     a = adapter(client)
     for _ in range(3):
@@ -134,7 +149,9 @@ async def test_circuito_reabre_depois_da_janela(client: httpx.AsyncClient):
 
 @respx.mock
 async def test_timeout_vira_indisponivel(client: httpx.AsyncClient):
-    respx.patch(f"{BASE}/consultas/cons_1").mock(side_effect=httpx.ConnectTimeout("timeout"))
+    respx.patch(f"{BASE}/consultas/cons_1").mock(
+        side_effect=httpx.ConnectTimeout("timeout")
+    )
     with pytest.raises(ErpIndisponivel):
         await adapter(client).remarcar("cons_1", AGORA + timedelta(days=1), at=AGORA)
 
@@ -150,11 +167,19 @@ async def test_sucesso_zera_as_falhas_acumuladas(client: httpx.AsyncClient):
 
 
 @respx.mock
-async def test_abrir_vaga_manda_o_payload_que_o_erp_documenta(client: httpx.AsyncClient):
-    rota = respx.post(f"{BASE}/consultas").mock(return_value=httpx.Response(201, json=CONSULTA_JSON))
-    await adapter(client).abrir_vaga("prof_bruno", AGORA + timedelta(days=3), 45, at=AGORA)
+async def test_abrir_vaga_manda_o_payload_que_o_erp_documenta(
+    client: httpx.AsyncClient,
+):
+    rota = respx.post(f"{BASE}/consultas").mock(
+        return_value=httpx.Response(201, json=CONSULTA_JSON)
+    )
+    await adapter(client).abrir_vaga(
+        "prof_bruno", AGORA + timedelta(days=3), 45, at=AGORA
+    )
     body = rota.calls.last.request.content.decode()
-    assert '"profissional_id":"prof_bruno"' in body.replace(", ", ",").replace('": "', '":"')
+    assert '"profissional_id":"prof_bruno"' in body.replace(", ", ",").replace(
+        '": "', '":"'
+    )
     assert '"duracao_min":45' in body.replace(", ", ",").replace('": ', '":')
 
 

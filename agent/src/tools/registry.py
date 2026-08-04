@@ -69,7 +69,13 @@ class AgentContext:
     audit: list[AuditEntry] = field(default_factory=list)
 
     def registrar(
-        self, *, kind: str, tool: str, input: dict, output: dict, reason_code: str | None
+        self,
+        *,
+        kind: str,
+        tool: str,
+        input: dict[str, Any],
+        output: dict[str, Any],
+        reason_code: str | None,
     ) -> None:
         self.audit.append(
             AuditEntry(

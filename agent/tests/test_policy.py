@@ -64,7 +64,9 @@ def test_p1_motivo_curto_conta_como_ausente(engine: PolicyEngine):
 
 def test_p1_cancelar_em_cima_da_hora_com_motivo_passa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_cancelar(inicio=em(2026, 8, 10, 11), motivo="paciente adoeceu", at=at)
+    d = engine.pode_cancelar(
+        inicio=em(2026, 8, 10, 11), motivo="paciente adoeceu", at=at
+    )
     assert d.allowed is True
 
 
@@ -76,7 +78,9 @@ def test_p1_fora_da_janela_nao_exige_motivo(engine: PolicyEngine):
 
 
 def test_p1_a_dica_nao_vaza_a_regra(engine: PolicyEngine):
-    d = engine.pode_cancelar(inicio=em(2026, 8, 10, 11), motivo="", at=em(2026, 8, 10, 9))
+    d = engine.pode_cancelar(
+        inicio=em(2026, 8, 10, 11), motivo="", at=em(2026, 8, 10, 9)
+    )
     assert "24" not in d.explanation_hint
     assert "hora" not in d.explanation_hint.replace("em cima da hora", "")
 
@@ -85,7 +89,9 @@ def test_p1_a_dica_nao_vaza_a_regra(engine: PolicyEngine):
 
 
 @pytest.mark.parametrize("delta_horas", [-1, 0])
-def test_p2_remarcar_para_o_passado_ou_agora_recusa(engine: PolicyEngine, delta_horas: int):
+def test_p2_remarcar_para_o_passado_ou_agora_recusa(
+    engine: PolicyEngine, delta_horas: int
+):
     at = em(2026, 8, 10, 9)
     d = engine.pode_remarcar(
         consulta_id="c1",
@@ -166,20 +172,26 @@ def test_p3_encostar_no_fim_da_outra_nao_e_conflito(engine: PolicyEngine):
 
 def test_p4_dentro_do_expediente_passa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 10), duracao_min=60, at=at)  # quinta
+    d = engine.pode_abrir_vaga(
+        inicio=em(2026, 8, 13, 10), duracao_min=60, at=at
+    )  # quinta
     assert d.allowed is True
 
 
 def test_p4_domingo_recusa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 16, 10), duracao_min=30, at=at)  # domingo
+    d = engine.pode_abrir_vaga(
+        inicio=em(2026, 8, 16, 10), duracao_min=30, at=at
+    )  # domingo
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
 
 
 def test_p4_sabado_a_tarde_recusa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 15, 13), duracao_min=30, at=at)  # sábado 13h
+    d = engine.pode_abrir_vaga(
+        inicio=em(2026, 8, 15, 13), duracao_min=30, at=at
+    )  # sábado 13h
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
 
@@ -222,7 +234,9 @@ def test_p4_atravessar_a_meia_noite_recusa(engine: PolicyEngine):
 # -- P-5 · teto de escritas ---------------------------------------------------
 
 
-@pytest.mark.parametrize("feitas,esperado", [(0, True), (2, True), (3, False), (9, False)])
+@pytest.mark.parametrize(
+    "feitas,esperado", [(0, True), (2, True), (3, False), (9, False)]
+)
 def test_p5_teto_de_escritas(engine: PolicyEngine, feitas: int, esperado: bool):
     d = engine.pode_escrever(escritas_na_conversa=feitas)
     assert d.allowed is esperado
@@ -242,7 +256,10 @@ def test_engine_aceita_regras_injetadas():
     custom = {
         "version": "teste.1",
         "cancelamento": {"janela_horas": 1, "motivo_min_chars": 5},
-        "expediente": {"timezone": "America/Bahia", "dias": {"0": {"abre": "09:00", "fecha": "10:00"}}},
+        "expediente": {
+            "timezone": "America/Bahia",
+            "dias": {"0": {"abre": "09:00", "fecha": "10:00"}},
+        },
         "conversa": {"max_escritas": 1},
     }
     e = PolicyEngine(rules=custom)

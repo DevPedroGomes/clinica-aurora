@@ -28,7 +28,6 @@ from .adapters.erp import ErpAdapter
 from .agent import MODEL, Agente
 from .flows.state_machine import Conversation
 from .policy.engine import PolicyEngine
-from .prompts.system import PROMPT_ID
 from .tools.registry import AgentContext
 
 ERP_URL = os.getenv("ERP_URL", "http://erp:8080")
@@ -40,7 +39,9 @@ JANELA_RATE = 600
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
-app = FastAPI(title="Clínica Aurora — demo", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    title="Clínica Aurora — demo", docs_url=None, redoc_url=None, openapi_url=None
+)
 agente = Agente()
 
 
@@ -77,6 +78,12 @@ def _rate_limit(ip: str) -> None:
     janela = _hits[ip]
     while janela and agora - janela[0] > JANELA_RATE:
         janela.popleft()
+    if not janela:
+        # Sem isto o dicionário nunca encolhe: cada IP que passou por aqui uma
+        # vez deixa uma chave viva para sempre. É vazamento lento, mas é o tipo
+        # que só aparece em produção, semanas depois.
+        _hits.pop(ip, None)
+        janela = _hits[ip]
     if len(janela) >= RATE_POR_IP:
         raise HTTPException(429, "Muitas mensagens. Espere alguns minutos.")
     janela.append(agora)
@@ -107,7 +114,9 @@ def _contexto(s: Sessao) -> AgentContext:
 
 
 def _sse(tipo: str, dado: dict) -> str:
-    return f"event: {tipo}\ndata: {json.dumps(dado, ensure_ascii=False, default=str)}\n\n"
+    return (
+        f"event: {tipo}\ndata: {json.dumps(dado, ensure_ascii=False, default=str)}\n\n"
+    )
 
 
 @app.get("/health")
@@ -127,17 +136,25 @@ async def chat(
     if not mensagem:
         raise HTTPException(400, "Mensagem vazia.")
     if len(mensagem) > MENSAGEM_MAX:
-        raise HTTPException(400, f"Mensagem muito longa (máximo {MENSAGEM_MAX} caracteres).")
+        raise HTTPException(
+            400, f"Mensagem muito longa (máximo {MENSAGEM_MAX} caracteres)."
+        )
 
     _rate_limit(_ip(x_real_ip))
     sid, sessao = _sessao(sid)
 
+    # `locked()` e `acquire()` sem await no meio: em asyncio nada interleva
+    # entre os dois, então isto é atômico. Checar aqui e adquirir lá dentro do
+    # gerador — que só começa a rodar depois — deixava duas requisições
+    # simultâneas passarem pela checagem e consumirem o teto duas vezes.
     if sessao.lock.locked():
         raise HTTPException(409, "Ainda estou respondendo a anterior.")
+    await sessao.lock.acquire()
 
     try:
         budget.consumir()
     except budget.Bloqueado as exc:
+        sessao.lock.release()
         raise HTTPException(
             503,
             {
@@ -149,21 +166,30 @@ async def chat(
     ctx = _contexto(sessao)
 
     async def stream():
-        async with sessao.lock:
-            houve_resposta = False
-            try:
-                async for evento in agente.turno(sessao.conversa, mensagem, ctx):
-                    houve_resposta = True
-                    yield _sse(evento.tipo, evento.dado)
-            except Exception:  # noqa: BLE001
-                yield _sse("error", {"mensagem": "Algo falhou aqui do meu lado."})
-            finally:
-                if not houve_resposta:
-                    budget.devolver()
-                yield _sse("done", {"estado": sessao.conversa.state.value})
+        houve_resposta = False
+        try:
+            async for evento in agente.turno(sessao.conversa, mensagem, ctx):
+                houve_resposta = True
+                yield _sse(evento.tipo, evento.dado)
+        except Exception:  # noqa: BLE001
+            yield _sse("error", {"mensagem": "Algo falhou aqui do meu lado."})
+        finally:
+            # Roda também quando o cliente desconecta no meio (GeneratorExit),
+            # senão a sessão ficaria travada até o TTL.
+            if not houve_resposta:
+                budget.devolver()
+            sessao.lock.release()
+            yield _sse("done", {"estado": sessao.conversa.state.value})
 
     resposta = StreamingResponse(stream(), media_type="text/event-stream")
-    resposta.set_cookie("aurora_sid", sid, max_age=SESSAO_TTL, httponly=True, samesite="lax")
+    resposta.set_cookie(
+        "aurora_sid",
+        sid,
+        max_age=SESSAO_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
     resposta.headers["Cache-Control"] = "no-store"
     resposta.headers["X-Accel-Buffering"] = "no"
     return resposta
@@ -177,15 +203,26 @@ async def estado(
     """Espelho do ERP para o painel da direita. É o outro lado da integração."""
     sid, sessao = _sessao(sid)
     async with httpx.AsyncClient(timeout=5.0) as client:
-        r = await client.get(f"{ERP_URL}/admin/estado", headers={"X-Tenant-Id": sessao.tenant_id})
+        r = await client.get(
+            f"{ERP_URL}/admin/estado", headers={"X-Tenant-Id": sessao.tenant_id}
+        )
     dados = r.json()
     dados["conversa"] = {
         "estado": sessao.conversa.state.value,
         "escritas": sessao.ctx.escritas_realizadas if sessao.ctx else 0,
         "escalada": sessao.conversa.escalation_reason,
     }
-    resposta = Response(json.dumps(dados, ensure_ascii=False), media_type="application/json")
-    resposta.set_cookie("aurora_sid", sid, max_age=SESSAO_TTL, httponly=True, samesite="lax")
+    resposta = Response(
+        json.dumps(dados, ensure_ascii=False), media_type="application/json"
+    )
+    resposta.set_cookie(
+        "aurora_sid",
+        sid,
+        max_age=SESSAO_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
     return resposta
 
 
@@ -204,7 +241,14 @@ async def chaos(
             headers={"X-Tenant-Id": sessao.tenant_id},
         )
     resposta = Response(r.text, media_type="application/json")
-    resposta.set_cookie("aurora_sid", sid, max_age=SESSAO_TTL, httponly=True, samesite="lax")
+    resposta.set_cookie(
+        "aurora_sid",
+        sid,
+        max_age=SESSAO_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
     return resposta
 
 
@@ -216,11 +260,20 @@ async def reset(
     _rate_limit(_ip(x_real_ip))
     sid, sessao = _sessao(sid)
     async with httpx.AsyncClient(timeout=5.0) as client:
-        await client.post(f"{ERP_URL}/admin/reset", headers={"X-Tenant-Id": sessao.tenant_id})
+        await client.post(
+            f"{ERP_URL}/admin/reset", headers={"X-Tenant-Id": sessao.tenant_id}
+        )
     sessao.conversa = Conversation()
     sessao.ctx = None
     resposta = Response('{"ok":true}', media_type="application/json")
-    resposta.set_cookie("aurora_sid", sid, max_age=SESSAO_TTL, httponly=True, samesite="lax")
+    resposta.set_cookie(
+        "aurora_sid",
+        sid,
+        max_age=SESSAO_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
     return resposta
 
 

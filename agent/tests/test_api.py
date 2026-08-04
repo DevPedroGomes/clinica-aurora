@@ -40,7 +40,11 @@ def api(monkeypatch, tmp_path):
 
 
 def cliente(api) -> TestClient:
-    return TestClient(api.app)
+    # https e não http: o cookie de sessão é `Secure`, e um cliente falando
+    # http simplesmente não o guarda nem o devolve. Em produção só existe
+    # HTTPS (Traefik), então o teste precisa falar a mesma coisa — senão ele
+    # testa um caminho que ninguém percorre.
+    return TestClient(api.app, base_url="https://testserver")
 
 
 def test_health_prova_que_o_processo_esta_de_pe(api):
@@ -106,7 +110,9 @@ def test_sem_x_real_ip_todos_caem_no_mesmo_balde(api, monkeypatch):
 def test_chaos_vai_para_o_tenant_da_sessao(api):
     c = cliente(api)
     with respx.mock:
-        rota = respx.post(f"{ERP}/admin/chaos").mock(return_value=httpx.Response(200, json={"down": True}))
+        rota = respx.post(f"{ERP}/admin/chaos").mock(
+            return_value=httpx.Response(200, json={"down": True})
+        )
         respx.get(f"{ERP}/admin/estado").mock(
             return_value=httpx.Response(200, json={"down": True, "consultas": []})
         )

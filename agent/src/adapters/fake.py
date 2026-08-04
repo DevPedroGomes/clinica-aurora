@@ -27,7 +27,10 @@ class ErpFake:
             raise ErpIndisponivel("fake down")
 
     async def listar(
-        self, profissional_id: str | None = None, data: datetime | None = None, at: datetime | None = None
+        self,
+        profissional_id: str | None = None,
+        data: datetime | None = None,
+        at: datetime | None = None,
     ) -> list[ConsultaView]:
         self._guarda("listar", profissional_id or "")
         itens = [c for c in self.consultas.values() if c.status == "agendada"]
@@ -41,7 +44,9 @@ class ErpFake:
         self._guarda("obter", consulta_id)
         return self.consultas.get(consulta_id)
 
-    async def remarcar(self, consulta_id: str, novo_inicio: datetime, at: datetime) -> ConsultaView:
+    async def remarcar(
+        self, consulta_id: str, novo_inicio: datetime, at: datetime
+    ) -> ConsultaView:
         self._guarda("remarcar", consulta_id)
         c = self.consultas.get(consulta_id)
         if c is None:
@@ -51,7 +56,9 @@ class ErpFake:
         c.fim = novo_inicio + duracao
         return c
 
-    async def cancelar(self, consulta_id: str, motivo: str, at: datetime) -> ConsultaView:
+    async def cancelar(
+        self, consulta_id: str, motivo: str, at: datetime
+    ) -> ConsultaView:
         self._guarda("cancelar", consulta_id)
         c = self.consultas.get(consulta_id)
         if c is None:
@@ -69,7 +76,9 @@ class ErpFake:
             id=cid,
             paciente_nome="—",
             profissional_id=profissional_id,
-            profissional_nome="Dr. Bruno Salles" if profissional_id == "prof_bruno" else "Dra. Helena Costa",
+            profissional_nome="Dr. Bruno Salles"
+            if profissional_id == "prof_bruno"
+            else "Dra. Helena Costa",
             inicio=inicio,
             fim=inicio + timedelta(minutes=duracao_min),
             status="agendada",

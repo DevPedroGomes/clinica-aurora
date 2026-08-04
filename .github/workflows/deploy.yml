@@ -22,12 +22,21 @@ jobs:
           cache: pip
       - name: Instalar dependencias
         run: pip install -r agent/requirements-dev.txt
+      - name: Lint e tipos (convencao da fabrica)
+        working-directory: agent
+        run: |
+          ruff check src tests ../erp/app
+          ruff format --check src tests ../erp/app
+          mypy --strict src/policy src/tools
       - name: Testes
         working-directory: agent
         run: python -m pytest tests/ -q
       - name: Portao do passo 3 — policy exige 100%
         working-directory: agent
         run: python -m pytest tests/test_policy.py -q --cov=src/policy --cov-report=term-missing --cov-fail-under=100
+      - name: Portao do checklist — tools/ exige 90%
+        working-directory: agent
+        run: python -m pytest tests/ -q --cov=src/tools --cov-report=term-missing --cov-fail-under=90
 
   build:
     needs: test

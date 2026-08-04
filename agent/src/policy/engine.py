@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -36,8 +37,12 @@ class Janela:
 
 
 class PolicyEngine:
-    def __init__(self, rules: dict | None = None) -> None:
-        self._rules = rules if rules is not None else yaml.safe_load(RULES_PATH.read_text("utf-8"))
+    def __init__(self, rules: dict[str, Any] | None = None) -> None:
+        self._rules = (
+            rules
+            if rules is not None
+            else yaml.safe_load(RULES_PATH.read_text("utf-8"))
+        )
         self.version: str = self._rules["version"]
         self._tz = ZoneInfo(self._rules["expediente"]["timezone"])
 
@@ -65,7 +70,12 @@ class PolicyEngine:
                 ),
                 audit_payload=payload,
             )
-        return Decision(allowed=True, reason_code=ALLOWED, audit_payload=payload, explanation_hint="confirme o cancelamento")
+        return Decision(
+            allowed=True,
+            reason_code=ALLOWED,
+            audit_payload=payload,
+            explanation_hint="confirme o cancelamento",
+        )
 
     # -- P-2 e P-3 ---------------------------------------------------------------
 
@@ -95,7 +105,10 @@ class PolicyEngine:
             )
 
         for janela in agenda:
-            if janela.consulta_id == consulta_id or janela.profissional_id != profissional_id:
+            if (
+                janela.consulta_id == consulta_id
+                or janela.profissional_id != profissional_id
+            ):
                 continue
             if novo_inicio < janela.fim and janela.inicio < novo_fim:
                 return Decision(
@@ -115,7 +128,9 @@ class PolicyEngine:
 
     # -- P-4 ---------------------------------------------------------------------
 
-    def pode_abrir_vaga(self, *, inicio: datetime, duracao_min: int, at: datetime) -> Decision:
+    def pode_abrir_vaga(
+        self, *, inicio: datetime, duracao_min: int, at: datetime
+    ) -> Decision:
         local = inicio.astimezone(self._tz)
         fim_local = (inicio + timedelta(minutes=duracao_min)).astimezone(self._tz)
         dia = self._rules["expediente"]["dias"].get(str(local.weekday()))
@@ -147,7 +162,11 @@ class PolicyEngine:
         fecha = time.fromisoformat(dia["fecha"])
         # O atendimento inteiro precisa caber no expediente, não só o começo:
         # abrir 17h50 de 60 minutos deixaria a clínica aberta até 18h50.
-        cabe = abre <= local.time() and fim_local.time() <= fecha and fim_local.date() == local.date()
+        cabe = (
+            abre <= local.time()
+            and fim_local.time() <= fecha
+            and fim_local.date() == local.date()
+        )
 
         if not cabe:
             return Decision(

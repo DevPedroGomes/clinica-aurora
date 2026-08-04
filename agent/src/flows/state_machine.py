@@ -27,7 +27,12 @@ class State(str, Enum):
 TRANSITIONS: dict[State, list[State]] = {
     State.GREETING: [State.QUALIFYING, State.ESCALATED],
     State.QUALIFYING: [State.COLLECTING, State.RESOLVED, State.ESCALATED],
-    State.COLLECTING: [State.CONFIRMING, State.QUALIFYING, State.RESOLVED, State.ESCALATED],
+    State.COLLECTING: [
+        State.CONFIRMING,
+        State.QUALIFYING,
+        State.RESOLVED,
+        State.ESCALATED,
+    ],
     State.CONFIRMING: [State.EXECUTING, State.COLLECTING, State.ESCALATED],
     State.EXECUTING: [State.RESOLVED, State.COLLECTING, State.ESCALATED],
     State.RESOLVED: [State.QUALIFYING, State.ESCALATED],
@@ -73,7 +78,9 @@ class Conversation:
         if destino == self.state:
             return
         if destino not in TRANSITIONS[self.state]:
-            raise TransitionError(f"{self.state.value} -> {destino.value} não é uma transição declarada")
+            raise TransitionError(
+                f"{self.state.value} -> {destino.value} não é uma transição declarada"
+            )
         self.state = destino
 
     def avancar(self, destino: State) -> list[State]:
@@ -103,7 +110,9 @@ class Conversation:
                 fila.append(proximo)
 
         if destino not in anteriores:
-            raise TransitionError(f"{self.state.value} -> {destino.value} não tem caminho declarado")
+            raise TransitionError(
+                f"{self.state.value} -> {destino.value} não tem caminho declarado"
+            )
 
         caminho: list[State] = []
         no = destino

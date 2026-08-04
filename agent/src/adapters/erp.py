@@ -64,11 +64,17 @@ class ConsultaView:
 
 
 class ErpPort(Protocol):
-    async def listar(self, profissional_id: str | None, data: datetime | None) -> list[ConsultaView]: ...
+    async def listar(
+        self, profissional_id: str | None, data: datetime | None
+    ) -> list[ConsultaView]: ...
     async def obter(self, consulta_id: str) -> ConsultaView | None: ...
-    async def remarcar(self, consulta_id: str, novo_inicio: datetime) -> ConsultaView: ...
+    async def remarcar(
+        self, consulta_id: str, novo_inicio: datetime
+    ) -> ConsultaView: ...
     async def cancelar(self, consulta_id: str, motivo: str) -> ConsultaView: ...
-    async def abrir_vaga(self, profissional_id: str, inicio: datetime, duracao_min: int) -> ConsultaView: ...
+    async def abrir_vaga(
+        self, profissional_id: str, inicio: datetime, duracao_min: int
+    ) -> ConsultaView: ...
 
 
 class CircuitBreaker:
@@ -92,7 +98,9 @@ class CircuitBreaker:
 class ErpAdapter:
     """Cliente HTTP do ERP, com o tenant da sessão em todo request."""
 
-    def __init__(self, base_url: str, tenant_id: str, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self, base_url: str, tenant_id: str, client: httpx.AsyncClient | None = None
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._tenant = tenant_id
         self._client = client
@@ -103,7 +111,13 @@ class ErpAdapter:
         return {"X-Tenant-Id": self._tenant}
 
     async def _request(
-        self, metodo: str, caminho: str, *, json: dict | None = None, params: dict | None = None, at: datetime
+        self,
+        metodo: str,
+        caminho: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        at: datetime,
     ) -> Any:
         if self._breaker.aberto(at):
             raise ErpIndisponivel("circuito aberto")
@@ -118,7 +132,11 @@ class ErpAdapter:
                 fechar = self._client is None
                 try:
                     resp = await client.request(
-                        metodo, f"{self._base}{caminho}", json=json, params=params, headers=self._headers
+                        metodo,
+                        f"{self._base}{caminho}",
+                        json=json,
+                        params=params,
+                        headers=self._headers,
                     )
                 finally:
                     if fechar:
@@ -159,14 +177,22 @@ class ErpAdapter:
         raise ultimo_erro or ErpIndisponivel("falha desconhecida")
 
     async def listar(
-        self, profissional_id: str | None = None, data: datetime | None = None, at: datetime | None = None
+        self,
+        profissional_id: str | None = None,
+        data: datetime | None = None,
+        at: datetime | None = None,
     ) -> list[ConsultaView]:
         params: dict[str, str] = {}
         if profissional_id:
             params["profissional_id"] = profissional_id
         if data:
             params["data"] = data.isoformat()
-        raw = await self._request("GET", "/consultas", params=params, at=at or datetime.now(data.tzinfo if data else None))
+        raw = await self._request(
+            "GET",
+            "/consultas",
+            params=params,
+            at=at or datetime.now(data.tzinfo if data else None),
+        )
         return [ConsultaView.de_json(item) for item in raw]
 
     async def obter(self, consulta_id: str, at: datetime) -> ConsultaView | None:
@@ -178,15 +204,25 @@ class ErpAdapter:
             raise
         return ConsultaView.de_json(raw)
 
-    async def remarcar(self, consulta_id: str, novo_inicio: datetime, at: datetime) -> ConsultaView:
+    async def remarcar(
+        self, consulta_id: str, novo_inicio: datetime, at: datetime
+    ) -> ConsultaView:
         raw = await self._request(
-            "PATCH", f"/consultas/{consulta_id}", json={"novo_inicio": novo_inicio.isoformat()}, at=at
+            "PATCH",
+            f"/consultas/{consulta_id}",
+            json={"novo_inicio": novo_inicio.isoformat()},
+            at=at,
         )
         return ConsultaView.de_json(raw)
 
-    async def cancelar(self, consulta_id: str, motivo: str, at: datetime) -> ConsultaView:
+    async def cancelar(
+        self, consulta_id: str, motivo: str, at: datetime
+    ) -> ConsultaView:
         raw = await self._request(
-            "POST", f"/consultas/{consulta_id}/cancelamento", json={"motivo": motivo}, at=at
+            "POST",
+            f"/consultas/{consulta_id}/cancelamento",
+            json={"motivo": motivo},
+            at=at,
         )
         return ConsultaView.de_json(raw)
 

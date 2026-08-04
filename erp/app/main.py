@@ -13,10 +13,22 @@ Duas coisas aqui existem só por causa da demo, e estão declaradas na página:
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
+from collections import defaultdict, deque
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from .models import (
@@ -29,9 +41,38 @@ from .models import (
     Profissional,
     RemarcarRequest,
 )
-from .store import BAHIA, PACIENTES, PROFISSIONAIS, Tenant, store
+from .store import (
+    BAHIA,
+    MAX_CONSULTAS_POR_TENANT,
+    PACIENTES,
+    PROFISSIONAIS,
+    Tenant,
+    store,
+)
 
 DURACOES_VALIDAS = {30, 45, 60}
+
+# Rate limit por IP nas rotas que mudam estado. Le o peer real que o Traefik
+# poe em x-real-ip; quem chega sem o header cai num balde comum em vez de
+# ganhar cota nova a cada requisicao.
+ESCRITAS_POR_IP = 60
+JANELA_S = 600
+_hits: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _limitar(request: Request) -> None:
+    ip = request.headers.get("x-real-ip") or "sem-ip"
+    agora = time.monotonic()
+    janela = _hits[ip]
+    while janela and agora - janela[0] > JANELA_S:
+        janela.popleft()
+    if not janela:
+        _hits.pop(ip, None)  # nao deixa o dicionario crescer com IPs ociosos
+        janela = _hits[ip]
+    if len(janela) >= ESCRITAS_POR_IP:
+        raise HTTPException(429, "Muitas alterações. Espere alguns minutos.")
+    janela.append(agora)
+
 
 app = FastAPI(
     title="Clínica Aurora ERP",
@@ -60,7 +101,9 @@ def agora() -> datetime:
 
 
 def get_tenant(
-    x_tenant_id: Annotated[str, Header(description="Identificador da sessão da demo.")] = "demo",
+    x_tenant_id: Annotated[
+        str, Header(description="Identificador da sessão da demo.")
+    ] = "demo",
 ) -> Tenant:
     t = store.tenant(x_tenant_id[:64], agora())
     if t.down:
@@ -105,7 +148,9 @@ def listar_pacientes() -> list[Paciente]:
 def listar_consultas(
     tenant: TenantDep,
     profissional_id: Annotated[str | None, Query()] = None,
-    data: Annotated[datetime | None, Query(description="Filtra pelo dia (America/Bahia).")] = None,
+    data: Annotated[
+        datetime | None, Query(description="Filtra pelo dia (America/Bahia).")
+    ] = None,
 ) -> list[ConsultaDetalhada]:
     return [_detalhar(c) for c in store.listar(tenant, profissional_id, data)]
 
@@ -128,10 +173,16 @@ def obter_consulta(consulta_id: str, tenant: TenantDep) -> ConsultaDetalhada:
     "/consultas/{consulta_id}",
     response_model=ConsultaDetalhada,
     tags=["agenda"],
-    responses={404: {"description": "Consulta inexistente nesta sessão."}, 409: {"description": "Horário ocupado."}},
+    responses={
+        404: {"description": "Consulta inexistente nesta sessão."},
+        409: {"description": "Horário ocupado."},
+    },
 )
 def remarcar_consulta(
-    consulta_id: str, body: RemarcarRequest, tenant: TenantDep
+    consulta_id: str,
+    body: RemarcarRequest,
+    tenant: TenantDep,
+    _: None = Depends(_limitar),
 ) -> ConsultaDetalhada:
     c = tenant.consultas.get(consulta_id)
     if c is None or c.status is ConsultaStatus.CANCELADA:
@@ -149,7 +200,9 @@ def remarcar_consulta(
         if outra.profissional_id != c.profissional_id:
             continue
         if novo_inicio < outra.fim and outra.inicio < novo_fim:
-            raise HTTPException(status_code=409, detail="Horário já ocupado para este profissional.")
+            raise HTTPException(
+                status_code=409, detail="Horário já ocupado para este profissional."
+            )
 
     c.inicio = novo_inicio
     c.fim = novo_fim
@@ -163,7 +216,10 @@ def remarcar_consulta(
     responses={404: {"description": "Consulta inexistente nesta sessão."}},
 )
 def cancelar_consulta(
-    consulta_id: str, body: CancelarRequest, tenant: TenantDep
+    consulta_id: str,
+    body: CancelarRequest,
+    tenant: TenantDep,
+    _: None = Depends(_limitar),
 ) -> ConsultaDetalhada:
     c = tenant.consultas.get(consulta_id)
     if c is None:
@@ -178,20 +234,37 @@ def cancelar_consulta(
     response_model=ConsultaDetalhada,
     status_code=201,
     tags=["agenda"],
-    responses={409: {"description": "Horário ocupado."}, 422: {"description": "Duração inválida."}},
+    responses={
+        409: {"description": "Horário ocupado."},
+        422: {"description": "Duração inválida."},
+    },
 )
-def abrir_vaga(body: AbrirVagaRequest, tenant: TenantDep) -> ConsultaDetalhada:
+def abrir_vaga(
+    body: AbrirVagaRequest, tenant: TenantDep, _: None = Depends(_limitar)
+) -> ConsultaDetalhada:
+    if len(tenant.consultas) >= MAX_CONSULTAS_POR_TENANT:
+        raise HTTPException(
+            status_code=429,
+            detail="Esta agenda de demonstração atingiu o limite de consultas.",
+        )
     if body.duracao_min not in DURACOES_VALIDAS:
-        raise HTTPException(status_code=422, detail="Duração deve ser 30, 45 ou 60 minutos.")
+        raise HTTPException(
+            status_code=422, detail="Duração deve ser 30, 45 ou 60 minutos."
+        )
     if not any(p.id == body.profissional_id for p in PROFISSIONAIS):
         raise HTTPException(status_code=404, detail="Profissional não encontrado.")
 
     fim = body.inicio + timedelta(minutes=body.duracao_min)
     for outra in tenant.consultas.values():
-        if outra.status is ConsultaStatus.CANCELADA or outra.profissional_id != body.profissional_id:
+        if (
+            outra.status is ConsultaStatus.CANCELADA
+            or outra.profissional_id != body.profissional_id
+        ):
             continue
         if body.inicio < outra.fim and outra.inicio < fim:
-            raise HTTPException(status_code=409, detail="Horário já ocupado para este profissional.")
+            raise HTTPException(
+                status_code=409, detail="Horário já ocupado para este profissional."
+            )
 
     cid = store.novo_id()
     consulta = Consulta(
@@ -208,7 +281,9 @@ def abrir_vaga(body: AbrirVagaRequest, tenant: TenantDep) -> ConsultaDetalhada:
 # -- superfície da demo, não do ERP ------------------------------------------
 
 
-@app.post("/admin/chaos", tags=["demo"], summary="Liga ou desliga o modo caos desta sessão")
+@app.post(
+    "/admin/chaos", tags=["demo"], summary="Liga ou desliga o modo caos desta sessão"
+)
 def chaos(
     ligado: bool,
     x_tenant_id: Annotated[str, Header()] = "demo",
@@ -229,7 +304,9 @@ def reset(x_tenant_id: Annotated[str, Header()] = "demo") -> Response:
     return Response(status_code=204)
 
 
-@app.get("/admin/estado", tags=["demo"], summary="Agenda inteira desta sessão, para o painel")
+@app.get(
+    "/admin/estado", tags=["demo"], summary="Agenda inteira desta sessão, para o painel"
+)
 def estado(x_tenant_id: Annotated[str, Header()] = "demo") -> dict[str, object]:
     t = store.tenant(x_tenant_id[:64], agora())
     consultas = sorted(t.consultas.values(), key=lambda c: c.inicio)

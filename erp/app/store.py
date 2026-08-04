@@ -19,11 +19,23 @@ from .models import Consulta, ConsultaStatus, Paciente, Profissional
 TENANT_TTL = timedelta(hours=2)
 MAX_TENANTS = 500
 
+# O ERP e publico de proposito — a demo perde o sentido se o visitante nao
+# puder inspecionar o outro lado. Mas publico sem teto e outra coisa: sem isto,
+# um laco de POST /consultas cresce a memoria do processo sem limite nenhum, e
+# a VPS e compartilhada com todas as outras demos. O agente ja tem teto (P-5,
+# 3 escritas por conversa); o ERP precisa do seu, porque ninguem e obrigado a
+# passar pelo agente para falar com ele.
+MAX_CONSULTAS_POR_TENANT = 40
+
 BAHIA = timezone(timedelta(hours=-3))
 
 PROFISSIONAIS = [
-    Profissional(id="prof_bruno", nome="Dr. Bruno Salles", especialidade="Clínico geral"),
-    Profissional(id="prof_helena", nome="Dra. Helena Costa", especialidade="Dermatologia"),
+    Profissional(
+        id="prof_bruno", nome="Dr. Bruno Salles", especialidade="Clínico geral"
+    ),
+    Profissional(
+        id="prof_helena", nome="Dra. Helena Costa", especialidade="Dermatologia"
+    ),
 ]
 
 PACIENTES = [
@@ -49,7 +61,9 @@ def _seed(agora: datetime, ids: count) -> dict[str, Consulta]:
     (para provar o conflito).
     """
     hoje = agora.astimezone(BAHIA)
-    amanha = (hoje + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    amanha = (hoje + timedelta(days=1)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
     daqui_2h = (hoje + timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
 
     linhas = [
@@ -90,14 +104,18 @@ class Store:
                 if len(self._tenants) >= MAX_TENANTS:
                     # Despeja o mais antigo em vez de recusar: a demo nunca deve
                     # dizer "cheio" para um visitante novo.
-                    mais_antigo = min(self._tenants, key=lambda k: self._tenants[k].criado_em)
+                    mais_antigo = min(
+                        self._tenants, key=lambda k: self._tenants[k].criado_em
+                    )
                     del self._tenants[mais_antigo]
                 t = Tenant(consultas=_seed(agora, self._ids))
                 self._tenants[tenant_id] = t
             return t
 
     def _evict(self, agora: datetime) -> None:
-        expirados = [k for k, v in self._tenants.items() if agora - v.criado_em > TENANT_TTL]
+        expirados = [
+            k for k, v in self._tenants.items() if agora - v.criado_em > TENANT_TTL
+        ]
         for k in expirados:
             del self._tenants[k]
 
@@ -112,7 +130,9 @@ class Store:
     def listar(
         self, tenant: Tenant, profissional_id: str | None, data: datetime | None
     ) -> list[Consulta]:
-        itens = [c for c in tenant.consultas.values() if c.status == ConsultaStatus.AGENDADA]
+        itens = [
+            c for c in tenant.consultas.values() if c.status == ConsultaStatus.AGENDADA
+        ]
         if profissional_id:
             itens = [c for c in itens if c.profissional_id == profissional_id]
         if data:
