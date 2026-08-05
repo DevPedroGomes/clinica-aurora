@@ -231,6 +231,65 @@ def test_p4_atravessar_a_meia_noite_recusa(engine: PolicyEngine):
     assert d.reason_code == "outside_business_hours"
 
 
+# -- P-4 vale também para remarcação ------------------------------------------
+#
+# Este bloco existe por causa de um buraco encontrado usando a demo em produção:
+# a regra do expediente só estava ligada ao abrir_vaga. Dava para mover uma
+# consulta para domingo às 3h da manhã, e o log de decisão — que é o que a demo
+# mostra na tela — carimbava "permitido". Uma agenda não fica correta só porque
+# o horário está livre: ela precisa estar dentro do expediente também.
+
+
+def remarcar_para(engine: PolicyEngine, quando: datetime, minutos: int = 30):
+    return engine.pode_remarcar(
+        consulta_id="c1",
+        profissional_id="p1",
+        novo_inicio=quando,
+        duracao=timedelta(minutes=minutos),
+        agenda=[],
+        at=em(2026, 8, 10, 9),
+    )
+
+
+def test_p4_nao_remarca_para_dia_em_que_a_clinica_nao_abre(engine: PolicyEngine):
+    d = remarcar_para(engine, em(2026, 8, 16, 3))  # domingo, 3h da manhã
+    assert d.allowed is False
+    assert d.reason_code == "outside_business_hours"
+
+
+def test_p4_nao_remarca_para_depois_do_fechamento(engine: PolicyEngine):
+    d = remarcar_para(engine, em(2026, 8, 13, 17, 45), minutos=45)  # termina 18h30
+    assert d.allowed is False
+    assert d.reason_code == "outside_business_hours"
+
+
+def test_p4_nao_remarca_para_antes_da_abertura(engine: PolicyEngine):
+    d = remarcar_para(engine, em(2026, 8, 13, 7, 30))
+    assert d.allowed is False
+    assert d.reason_code == "outside_business_hours"
+
+
+def test_p4_remarcar_dentro_do_expediente_continua_passando(engine: PolicyEngine):
+    d = remarcar_para(engine, em(2026, 8, 13, 10), minutos=60)  # quinta, 10h
+    assert d.allowed is True
+
+
+def test_p4_remarcacao_no_passado_recusa_antes_de_olhar_o_expediente(
+    engine: PolicyEngine,
+):
+    """A ordem importa: 'já passou' é mais útil para a pessoa que 'fora do horário'."""
+    d = engine.pode_remarcar(
+        consulta_id="c1",
+        profissional_id="p1",
+        novo_inicio=em(2026, 8, 9, 3),  # domingo, e no passado
+        duracao=timedelta(minutes=30),
+        agenda=[],
+        at=em(2026, 8, 10, 9),
+    )
+    assert d.allowed is False
+    assert d.reason_code == "slot_in_the_past"
+
+
 # -- P-5 · teto de escritas ---------------------------------------------------
 
 
@@ -248,7 +307,7 @@ def test_p5_teto_de_escritas(engine: PolicyEngine, feitas: int, esperado: bool):
 
 
 def test_regras_vem_de_arquivo_versionado(engine: PolicyEngine):
-    assert engine.version == "2026.08.1"
+    assert engine.version == "2026.08.2"
 
 
 def test_engine_aceita_regras_injetadas():

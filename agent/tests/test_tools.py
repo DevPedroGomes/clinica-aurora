@@ -148,6 +148,24 @@ async def test_remarcar_para_horario_ocupado_recusa_por_politica(
     assert ctx.escritas_realizadas == 0
 
 
+async def test_remarcar_para_fora_do_expediente_recusa(ctx: AgentContext, erp: ErpFake):
+    """Horário livre não basta: precisa estar dentro do expediente da clínica.
+
+    Achado usando a demo em produção — a tool aceitava domingo às 3h da manhã
+    porque o expediente só estava ligado ao abrir_vaga.
+    """
+    out = await remarcar_consulta(
+        ctx,
+        RemarcarConsultaInput(
+            consulta_id="cons_1", novo_inicio="2026-08-16T03:00:00-03:00"
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "outside_business_hours"
+    assert erp.consultas["cons_1"].inicio.hour == 9  # nada foi escrito
+    assert ctx.escritas_realizadas == 0
+
+
 async def test_remarcar_para_o_passado_recusa(ctx: AgentContext):
     out = await remarcar_consulta(
         ctx,
@@ -322,7 +340,7 @@ async def test_toda_decisao_de_politica_entra_no_audit_com_a_versao_da_regra(
     decisoes = [e for e in ctx.audit if e.kind == "policy_decision"]
     assert len(decisoes) == 1
     assert decisoes[0].reason_code == "slot_conflict"
-    assert decisoes[0].rules_version == "2026.08.1"
+    assert decisoes[0].rules_version == "2026.08.2"
 
 
 async def test_escrita_bem_sucedida_gera_linha_de_write_no_audit(ctx: AgentContext):

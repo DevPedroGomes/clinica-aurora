@@ -7,8 +7,13 @@ qualquer horário sem congelar o relógio do processo.
 P-1 cancelamento em cima da hora exige motivo    CANCEL_WINDOW_REQUIRES_REASON
 P-2 não remarca para o passado                   SLOT_IN_THE_PAST
 P-3 não remarca para horário ocupado             SLOT_CONFLICT
-P-4 não abre vaga fora do expediente             OUTSIDE_BUSINESS_HOURS
+P-4 não agenda ninguém fora do expediente        OUTSIDE_BUSINESS_HOURS
 P-5 teto de escritas por conversa                WRITE_QUOTA_EXCEEDED
+
+P-4 vale para as DUAS escritas que põem alguém na agenda — abrir vaga e
+remarcar. Só ligá-la ao abrir_vaga foi um buraco real: a demo aceitava mover
+uma consulta para domingo às 3h da manhã e o log de decisão dizia "permitido",
+que é exatamente o oposto do que esta demo existe para provar.
 """
 
 from __future__ import annotations
@@ -45,6 +50,30 @@ class PolicyEngine:
         )
         self.version: str = self._rules["version"]
         self._tz = ZoneInfo(self._rules["expediente"]["timezone"])
+
+    # -- P-4, compartilhada por toda escrita que ocupa a agenda ------------------
+
+    def _fora_do_expediente(self, inicio: datetime, fim: datetime) -> str | None:
+        """Hint de recusa se o atendimento não cabe no expediente; None se cabe."""
+        local = inicio.astimezone(self._tz)
+        fim_local = fim.astimezone(self._tz)
+        dia = self._rules["expediente"]["dias"].get(str(local.weekday()))
+
+        if dia is None:
+            return "diga que a clínica não atende nesse dia e ofereça outro"
+
+        abre = time.fromisoformat(dia["abre"])
+        fecha = time.fromisoformat(dia["fecha"])
+        # O atendimento inteiro precisa caber no expediente, não só o começo:
+        # abrir 17h50 de 60 minutos deixaria a clínica aberta até 18h50.
+        cabe = (
+            abre <= local.time()
+            and fim_local.time() <= fecha
+            and fim_local.date() == local.date()
+        )
+        if cabe:
+            return None
+        return "diga que o horário está fora do expediente e ofereça um dentro"
 
     # -- P-1 ---------------------------------------------------------------------
 
@@ -104,6 +133,15 @@ class PolicyEngine:
                 audit_payload=payload,
             )
 
+        hint = self._fora_do_expediente(novo_inicio, novo_fim)
+        if hint:
+            return Decision(
+                allowed=False,
+                reason_code="outside_business_hours",
+                explanation_hint=hint,
+                audit_payload=payload,
+            )
+
         for janela in agenda:
             if (
                 janela.consulta_id == consulta_id
@@ -131,13 +169,10 @@ class PolicyEngine:
     def pode_abrir_vaga(
         self, *, inicio: datetime, duracao_min: int, at: datetime
     ) -> Decision:
-        local = inicio.astimezone(self._tz)
-        fim_local = (inicio + timedelta(minutes=duracao_min)).astimezone(self._tz)
-        dia = self._rules["expediente"]["dias"].get(str(local.weekday()))
-
+        fim = inicio + timedelta(minutes=duracao_min)
         payload = {
             "inicio": inicio.isoformat(),
-            "inicio_local": local.isoformat(),
+            "inicio_local": inicio.astimezone(self._tz).isoformat(),
             "duracao_min": duracao_min,
             "at": at.isoformat(),
         }
@@ -150,29 +185,12 @@ class PolicyEngine:
                 audit_payload=payload,
             )
 
-        if dia is None:
+        hint = self._fora_do_expediente(inicio, fim)
+        if hint:
             return Decision(
                 allowed=False,
                 reason_code="outside_business_hours",
-                explanation_hint="diga que a clínica não atende nesse dia e ofereça outro",
-                audit_payload=payload,
-            )
-
-        abre = time.fromisoformat(dia["abre"])
-        fecha = time.fromisoformat(dia["fecha"])
-        # O atendimento inteiro precisa caber no expediente, não só o começo:
-        # abrir 17h50 de 60 minutos deixaria a clínica aberta até 18h50.
-        cabe = (
-            abre <= local.time()
-            and fim_local.time() <= fecha
-            and fim_local.date() == local.date()
-        )
-
-        if not cabe:
-            return Decision(
-                allowed=False,
-                reason_code="outside_business_hours",
-                explanation_hint="diga que o horário está fora do expediente e ofereça um dentro",
+                explanation_hint=hint,
                 audit_payload=payload,
             )
 

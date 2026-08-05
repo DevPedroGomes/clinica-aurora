@@ -3,7 +3,9 @@
 # Mudar um número aqui muda o comportamento do agente sem tocar em código, e a
 # versão abaixo vai junto em cada linha do audit log: é assim que se prova, meses
 # depois, sob qual regra uma decisão foi tomada.
-version: "2026.08.1"
+# 2026.08.2 — o expediente passou a valer também para remarcação. Antes só
+# barrava vaga nova, e uma consulta podia ser movida para domingo de madrugada.
+version: "2026.08.2"
 
 cancelamento:
   # Abaixo desta antecedência, cancelar exige motivo registrado.
@@ -12,7 +14,8 @@ cancelamento:
 
 expediente:
   timezone: America/Bahia
-  # 0 = segunda ... 6 = domingo. Fora daqui, não se abre vaga.
+  # 0 = segunda ... 6 = domingo. Fora daqui não se agenda ninguém — nem abrindo
+  # vaga nova, nem remarcando uma consulta que já existe.
   dias:
     "0": { abre: "08:00", fecha: "18:00" }
     "1": { abre: "08:00", fecha: "18:00" }
