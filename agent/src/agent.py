@@ -172,7 +172,14 @@ class Agente:
 
             conv.historico.append({"role": "assistant", "content": blocos})
 
-            if texto:
+            # Texto que vem JUNTO de uma chamada de ferramenta não vai para a
+            # tela. É recheio — "um instante, vou verificar" — e some do fluxo
+            # sem custo: o log da direita já mostra a chamada, e a resposta de
+            # verdade vem na iteração seguinte, sempre. Cortar aqui resolve duas
+            # coisas de uma vez: o recheio era o único lugar onde o idioma ainda
+            # escapava para português, e era ele que fazia o agente pedir a
+            # confirmação DUAS vezes seguidas, uma antes da tool e outra depois.
+            if texto and not chamadas:
                 yield Evento("message", {"texto": texto})
 
             if not chamadas:

@@ -227,6 +227,25 @@ async def test_confirmar_uma_coisa_nao_autoriza_outra(ctx: AgentContext, erp: Er
 REMARCAR_16H = {"consulta_id": "cons_1", "novo_inicio": AMANHA_16H}
 
 
+async def test_texto_junto_da_tool_nao_vai_para_a_tela(ctx: AgentContext):
+    """Recheio ("um instante, vou verificar") não é resposta — não aparece.
+
+    Era por ali que o idioma escapava para português numa conversa em inglês, e
+    era ele que fazia o agente pedir a confirmação duas vezes seguidas: uma
+    junto da chamada, outra depois que o gate interceptou.
+    """
+    llm = FakeLLM(
+        [texto("Um instante, vou verificar."), tool_use("listar_agenda", {})],
+        [texto("Dr. Bruno has 2 appointments tomorrow.")],
+    )
+
+    eventos = await coletar(Agente(llm), Conversation(), "how many tomorrow?", ctx)
+
+    assert [e.dado["texto"] for e in eventos if e.tipo == "message"] == [
+        "Dr. Bruno has 2 appointments tomorrow."
+    ]
+
+
 def textos_do_historico(conv: Conversation) -> list[str]:
     """Todo texto de assistant que está no histórico, incluindo os vazios."""
     achados = []
