@@ -16,7 +16,7 @@ import pytest
 
 from src.adapters.erp import ConsultaView
 from src.adapters.fake import ErpFake
-from src.agent import Agente, assinatura
+from src.agent import FALLBACK_CONFIRMACAO, Agente, assinatura
 from src.flows.state_machine import (
     MAX_TURNS,
     Conversation,
@@ -212,6 +212,86 @@ async def test_confirmar_uma_coisa_nao_autoriza_outra(ctx: AgentContext, erp: Er
 
     assert erp.consultas["cons_1"].inicio.hour == 9  # nenhuma das duas gravou
     assert ctx.escritas_realizadas == 0
+
+
+# -- turno mudo ---------------------------------------------------------------
+#
+# Regressão de um bug encontrado usando a demo em produção. Quando o gate tira
+# as ferramentas da mesa, o modelo às vezes devolve um bloco de texto VAZIO.
+# Ele não virava mensagem na tela — a pessoa confirmava e nada aparecia — mas ia
+# inteiro para o histórico, e aí a API recusava a chamada SEGUINTE com
+# `text content blocks must be non-empty`. O 400 caía no except do loop, que
+# escala, e ESCALATED é terminal: a conversa morria, e a única saída era
+# recomeçar do zero, perdendo a agenda montada até ali.
+
+REMARCAR_16H = {"consulta_id": "cons_1", "novo_inicio": AMANHA_16H}
+
+
+def textos_do_historico(conv: Conversation) -> list[str]:
+    """Todo texto de assistant que está no histórico, incluindo os vazios."""
+    achados = []
+    for m in conv.historico:
+        conteudo = m["content"]
+        if m["role"] != "assistant" or not isinstance(conteudo, list):
+            continue
+        for b in conteudo:
+            tipo = b.get("type") if isinstance(b, dict) else b.type
+            if tipo == "text":
+                achados.append(b.get("text") if isinstance(b, dict) else b.text)
+    return achados
+
+
+async def test_texto_vazio_do_modelo_nao_entra_no_historico(ctx: AgentContext):
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("   ")],  # o turno mudo
+    )
+
+    await coletar(Agente(llm), conv, "remarca a da Ana pras 16h", ctx)
+
+    assert textos_do_historico(conv), "o turno tem de deixar algum texto no histórico"
+    assert all(t.strip() for t in textos_do_historico(conv))
+
+
+async def test_turno_mudo_pede_a_confirmacao_em_vez_de_sumir(ctx: AgentContext):
+    conv = Conversation()
+    llm = FakeLLM([tool_use("remarcar_consulta", REMARCAR_16H)], [texto("")])
+
+    eventos = await coletar(Agente(llm), conv, "remarca a da Ana pras 16h", ctx)
+
+    assert [e.dado["texto"] for e in eventos if e.tipo == "message"] == [
+        FALLBACK_CONFIRMACAO
+    ]
+    assert conv.state is State.CONFIRMING
+
+
+async def test_turno_seguinte_ao_mudo_nao_mata_a_conversa(ctx: AgentContext):
+    """O sintoma que o visitante via: a mensagem DEPOIS do turno mudo."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("")],
+        [texto("Remarquei para as 16h.")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos = await coletar(agente, conv, "confirmo", ctx)
+
+    assert conv.state is not State.ESCALATED
+    assert not any(e.tipo == "escalated" for e in eventos)
+
+    # E o que foi enviado à API não carrega bloco vazio nenhum.
+    for m in llm.chamadas[-1]["messages"]:
+        conteudo = m["content"]
+        if not isinstance(conteudo, list):
+            continue
+        for b in conteudo:
+            tipo = b.get("type") if isinstance(b, dict) else b.type
+            if tipo == "text":
+                bruto = b.get("text") if isinstance(b, dict) else b.text
+                assert bruto.strip(), "bloco de texto vazio foi para a API"
 
 
 async def test_confirmar_uma_consulta_nao_autoriza_a_outra(

@@ -42,6 +42,13 @@ EFFORT = os.getenv("AGENT_EFFORT", "low")
 BAHIA = ZoneInfo("America/Bahia")
 MAX_ITERACOES = 6
 
+# O que dizer quando o modelo devolve um turno inteiro sem texto nenhum. Calar
+# é a pior saída: a pessoa fala, some o "pensando…" e nada aparece — parece
+# quebrado. Estas frases são as ÚNICAS que este arquivo põe na boca do agente, e
+# nenhuma delas afirma que algo foi feito.
+FALLBACK_CONFIRMACAO = "Confirma para eu executar?"
+FALLBACK_MUDO = "Me perdi aqui. Pode repetir?"
+
 HANDLERS = {
     "listar_agenda": listar_agenda,
     "remarcar_consulta": remarcar_consulta,
@@ -137,13 +144,33 @@ class Agente:
                 yield Evento("escalated", {"motivo": "out_of_scope"})
                 return
 
-            conv.historico.append({"role": "assistant", "content": resposta.content})
+            # Bloco de texto VAZIO não pode entrar no histórico. Quando o gate de
+            # confirmação tira as ferramentas da mesa, o modelo às vezes devolve
+            # só raciocínio e um `text` em branco: ele não vira mensagem na tela
+            # (turno mudo) mas ia inteiro para o histórico, e a API recusava a
+            # chamada SEGUINTE com `text content blocks must be non-empty` — 400
+            # que caía no `except` acima e ESCALAVA a conversa para sempre. Uma
+            # pessoa confirmava, não via resposta, insistia, e perdia a sessão.
+            blocos = [b for b in resposta.content if b.type != "text" or b.text.strip()]
+            texto = "".join(b.text for b in blocos if b.type == "text").strip()
+            chamadas = [b for b in blocos if b.type == "tool_use"]
 
-            texto = "".join(b.text for b in resposta.content if b.type == "text")
-            if texto.strip():
-                yield Evento("message", {"texto": texto.strip()})
+            if not texto and not chamadas:
+                # Turno sem nada visível e sem nada a executar: em vez de sumir,
+                # fala. O mesmo texto vai para o histórico, senão o que o modelo
+                # lembra e o que a pessoa leu divergem no turno seguinte.
+                texto = (
+                    FALLBACK_CONFIRMACAO
+                    if conv.state is State.CONFIRMING
+                    else FALLBACK_MUDO
+                )
+                blocos = [*blocos, {"type": "text", "text": texto}]
 
-            chamadas = [b for b in resposta.content if b.type == "tool_use"]
+            conv.historico.append({"role": "assistant", "content": blocos})
+
+            if texto:
+                yield Evento("message", {"texto": texto})
+
             if not chamadas:
                 # Turno terminou em texto — ou seja, a proposta chegou à pessoa.
                 # Só agora ela vira confirmação pendente, e só na próxima fala
