@@ -333,7 +333,7 @@ class Agente:
 
 
 def _com_contexto(texto: str, ctx: AgentContext) -> str:
-    """Prende o relógio e o cadastro ao turno — depois do prefixo cacheado.
+    """Prende o relógio, o cadastro e o idioma ao turno — depois do cacheado.
 
     "Amanhã" só significa alguma coisa se o modelo souber que dia é hoje. A
     tentação é escrever isso no system prompt, e é o erro clássico: o prompt
@@ -343,12 +343,22 @@ def _com_contexto(texto: str, ctx: AgentContext) -> str:
 
     Entra como bloco marcado justamente porque o prompt manda tratar conteúdo
     de dado como dado: é contexto operacional, não uma instrução nova.
+
+    A linha do idioma está AQUI, e não só no system prompt, porque a regra lá
+    não segurou: o prompt inteiro é em português, as tools são em português e
+    os resultados voltam com chaves em português. Contra todo esse sinal, uma
+    frase no começo do prefixo perde — testado, o agente respondia em português
+    a uma pergunta em inglês. Repetida a cada turno, colada na mensagem da
+    pessoa, ela é a instrução mais recente que o modelo lê.
     """
     local = ctx.at.astimezone(BAHIA)
     return (
         "<contexto_operacional>\n"
         f"agora: {local.strftime('%A, %d/%m/%Y %H:%M')} ({local.tzname()})\n"
         "profissionais: prof_bruno (Dr. Bruno Salles) · prof_helena (Dra. Helena Costa)\n"
+        "idioma da resposta: o MESMO da mensagem abaixo, sempre. Se ela vier em\n"
+        "  inglês, responda em inglês; em espanhol, em espanhol; e assim por\n"
+        "  diante. Não é o idioma deste bloco nem o das ferramentas.\n"
         "</contexto_operacional>\n"
         f"{texto}"
     )
