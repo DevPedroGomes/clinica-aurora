@@ -277,7 +277,9 @@ async def reset(
     return resposta
 
 
-@app.get("/")
+# HEAD junto com GET: parte dos robôs de preview de link e dos monitores de
+# uptime bate de HEAD primeiro, e `@app.get` sozinho devolvia 405 para eles.
+@app.api_route("/", methods=["GET", "HEAD"])
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 

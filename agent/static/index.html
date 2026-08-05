@@ -5,6 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Clínica Aurora — agente que escreve na agenda</title>
 <meta name="description" content="Demo pública: um agente de IA que escreve numa agenda real e recusa quando a regra não deixa. O ERP é publicado junto.">
+<meta name="author" content="Pedro Gomes">
+
+<!-- Sem estas tags o link vira URL crua no LinkedIn, no WhatsApp e no Upwork —
+     que é justamente onde ele é compartilhado. og:image precisa ser absoluta. -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://aurora.pgdev.com.br/">
+<meta property="og:site_name" content="Gomio">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:title" content="Um agente que escreve na agenda — e recusa quando a regra não deixa">
+<meta property="og:description" content="Demo pública e aberta: converse com o agente e veja a linha mudar no ERP ao vivo. O ERP é publicado junto, com OpenAPI, para você inspecionar o outro lado da integração.">
+<meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Clínica Aurora — demo pública de um agente que escreve numa agenda real.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Um agente que escreve na agenda — e recusa quando a regra não deixa">
+<meta name="twitter:description" content="Demo pública: converse com o agente e veja a linha mudar no ERP ao vivo.">
+<meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
+
+<!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
+     404ando era uma requisição perdida em toda visita. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2360a5fa'/><rect x='11.5' y='11.5' width='9' height='9' rx='2' fill='%230a0a0a' transform='rotate(45 16 16)'/></svg>">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -31,6 +54,10 @@
   .marca{display:flex;align-items:center;gap:.6rem;font-weight:600;letter-spacing:-.02em}
   .marca span.dot{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#60a5fa,#7dd3fc);display:grid;place-items:center}
   .marca span.dot i{width:7px;height:7px;border-radius:2px;background:#0a0a0a;transform:rotate(45deg);display:block}
+  .por{font-weight:400;font-size:12px;color:var(--txt3);letter-spacing:0;padding-left:.6rem;border-left:1px solid var(--linha)}
+  .por a{color:var(--txt2);text-decoration:none;border-bottom:1px solid rgba(255,255,255,.22)}
+  .por a:hover{color:var(--txt);border-bottom-color:var(--azul)}
+  @media (max-width:560px){.por{padding-left:0;border-left:0;flex-basis:100%}}
   .aviso{font-size:12px;color:var(--txt3);max-width:52ch;line-height:1.5}
   .acoes{display:flex;gap:.5rem;flex-wrap:wrap}
   button{font:inherit;cursor:pointer;border:1px solid var(--linha);background:var(--painel);color:var(--txt);
@@ -84,6 +111,9 @@
   .ev b{color:var(--txt);font-weight:500}
   .vazio{color:var(--txt3);font-size:12.5px;font-family:Inter,sans-serif}
   .rodape{padding:.8rem 1.1rem;border-top:1px solid var(--linha);font-size:11.5px;color:var(--txt3);line-height:1.6}
+  .assinatura{margin-top:.55rem;padding-top:.55rem;border-top:1px solid rgba(255,255,255,.05);color:var(--txt2)}
+  .assinatura a{color:var(--txt2);text-decoration:none;border-bottom:1px solid rgba(255,255,255,.22)}
+  .assinatura a:hover{color:var(--txt);border-bottom-color:var(--azul)}
 </style>
 </head>
 <body>
@@ -92,6 +122,9 @@
   <div class="marca">
     <span class="dot"><i></i></span>
     Clínica Aurora
+    <!-- Quem se impressiona com a demo precisa de um caminho para quem a fez.
+         Sem isto a página termina em si mesma. -->
+    <span class="por">demo de <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a></span>
   </div>
   <p class="aviso">
     Clínica <strong>fictícia</strong>. O ERP dela é publicado junto — a escrita acontece de verdade, sobre HTTP, contra
@@ -133,6 +166,11 @@
     <div class="rodape">
       <strong style="color:rgba(255,255,255,.75)">Limites da demo</strong> · sessão anônima com agenda isolada · máx. 3 escritas por conversa ·
       teto diário de turnos e kill switch · nada persiste depois da sessão.
+      <div class="assinatura">
+        Construído por <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a> ·
+        <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
+        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener">outros projetos</a>
+      </div>
     </div>
   </section>
 </main>
