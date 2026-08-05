@@ -30,6 +30,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .models import (
     AbrirVagaRequest,
@@ -127,6 +128,14 @@ def _detalhar(c: Consulta) -> ConsultaDetalhada:
         paciente_nome=pac.nome if pac else "—",
         profissional_nome=prof.nome if prof else "—",
     )
+
+
+# A raiz existe porque o dominio e publico: a demo linka /docs, mas quem digita
+# o dominio nu caia num {"detail":"Not Found"} cru do FastAPI — pessimo cartao de
+# visita para o "servico separado que voce pode inspecionar".
+@app.get("/", include_in_schema=False)
+def raiz() -> RedirectResponse:
+    return RedirectResponse("/docs")
 
 
 @app.get("/health", tags=["infra"])
