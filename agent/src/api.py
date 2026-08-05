@@ -85,7 +85,7 @@ def _rate_limit(ip: str) -> None:
         _hits.pop(ip, None)
         janela = _hits[ip]
     if len(janela) >= RATE_POR_IP:
-        raise HTTPException(429, "Muitas mensagens. Espere alguns minutos.")
+        raise HTTPException(429, "Too many messages. Please wait a few minutes.")
     janela.append(agora)
 
 
@@ -134,11 +134,9 @@ async def chat(
     corpo = await request.json()
     mensagem = str(corpo.get("mensagem", "")).strip()
     if not mensagem:
-        raise HTTPException(400, "Mensagem vazia.")
+        raise HTTPException(400, "Empty message.")
     if len(mensagem) > MENSAGEM_MAX:
-        raise HTTPException(
-            400, f"Mensagem muito longa (máximo {MENSAGEM_MAX} caracteres)."
-        )
+        raise HTTPException(400, f"Message too long (max {MENSAGEM_MAX} characters).")
 
     _rate_limit(_ip(x_real_ip))
     sid, sessao = _sessao(sid)
@@ -148,7 +146,7 @@ async def chat(
     # gerador — que só começa a rodar depois — deixava duas requisições
     # simultâneas passarem pela checagem e consumirem o teto duas vezes.
     if sessao.lock.locked():
-        raise HTTPException(409, "Ainda estou respondendo a anterior.")
+        raise HTTPException(409, "Still answering the previous one.")
     await sessao.lock.acquire()
 
     try:
@@ -158,9 +156,9 @@ async def chat(
         raise HTTPException(
             503,
             {
-                "kill_switch": "A demo está pausada no momento.",
-                "teto_diario": "A demo atingiu o limite de uso de hoje. Volte amanhã.",
-            }.get(exc.motivo, "A demo está indisponível agora."),
+                "kill_switch": "This demo is paused right now.",
+                "teto_diario": "This demo hit today's usage cap. Please come back tomorrow.",
+            }.get(exc.motivo, "This demo is unavailable right now."),
         ) from exc
 
     ctx = _contexto(sessao)
@@ -172,7 +170,7 @@ async def chat(
                 houve_resposta = True
                 yield _sse(evento.tipo, evento.dado)
         except Exception:  # noqa: BLE001
-            yield _sse("error", {"mensagem": "Algo falhou aqui do meu lado."})
+            yield _sse("error", {"mensagem": "Something broke on my side."})
         finally:
             # Roda também quando o cliente desconecta no meio (GeneratorExit),
             # senão a sessão ficaria travada até o TTL.

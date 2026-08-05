@@ -88,7 +88,9 @@ def test_teto_diario_bloqueia_com_recado_humano(api):
         assert c.post("/api/chat", json={"mensagem": "oi"}).status_code == 200
     r = c.post("/api/chat", json={"mensagem": "oi"})
     assert r.status_code == 503
-    assert "amanhã" in r.json()["detail"]
+    # Recado humano, não um código: a interface é em inglês, e quem estoura o
+    # teto tem de entender que é limite da demo e não defeito do agente.
+    assert "tomorrow" in r.json()["detail"]
 
 
 def test_rate_limit_por_ip_real(api, monkeypatch):

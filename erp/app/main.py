@@ -70,7 +70,7 @@ def _limitar(request: Request) -> None:
         _hits.pop(ip, None)  # nao deixa o dicionario crescer com IPs ociosos
         janela = _hits[ip]
     if len(janela) >= ESCRITAS_POR_IP:
-        raise HTTPException(429, "Muitas alterações. Espere alguns minutos.")
+        raise HTTPException(429, "Too many changes. Please wait a few minutes.")
     janela.append(agora)
 
 
@@ -78,11 +78,11 @@ app = FastAPI(
     title="Clínica Aurora ERP",
     version="1.0.0",
     description=(
-        "Sistema de agenda da Clínica Aurora — uma clínica **fictícia**.\n\n"
-        "Publicado junto com a demo do agente para que qualquer pessoa possa ver "
-        "o outro lado da integração: o agente fala com esta API por HTTP, como "
-        "falaria com o ERP de um cliente real.\n\n"
-        "Cada sessão da demo recebe seu próprio `X-Tenant-Id` e sua própria agenda."
+        "Scheduling system of Clínica Aurora — a **fictional** clinic.\n\n"
+        "Published alongside the agent demo so anyone can see the other side of "
+        "the integration: the agent talks to this API over HTTP, exactly as it "
+        "would talk to a real client's ERP.\n\n"
+        "Each demo session gets its own `X-Tenant-Id` and its own schedule."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
@@ -102,7 +102,7 @@ def agora() -> datetime:
 
 def get_tenant(
     x_tenant_id: Annotated[
-        str, Header(description="Identificador da sessão da demo.")
+        str, Header(description="Demo session identifier.")
     ] = "demo",
 ) -> Tenant:
     t = store.tenant(x_tenant_id[:64], agora())
@@ -111,7 +111,7 @@ def get_tenant(
         # agente trata como "sistema fora do ar" para escalar.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ERP indisponível (modo caos ligado nesta sessão).",
+            detail="ERP unavailable (chaos mode is on for this session).",
         )
     return t
 
@@ -134,22 +134,22 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/profissionais", response_model=list[Profissional], tags=["cadastro"])
+@app.get("/profissionais", response_model=list[Profissional], tags=["records"])
 def listar_profissionais() -> list[Profissional]:
     return PROFISSIONAIS
 
 
-@app.get("/pacientes", response_model=list[Paciente], tags=["cadastro"])
+@app.get("/pacientes", response_model=list[Paciente], tags=["records"])
 def listar_pacientes() -> list[Paciente]:
     return PACIENTES
 
 
-@app.get("/consultas", response_model=list[ConsultaDetalhada], tags=["agenda"])
+@app.get("/consultas", response_model=list[ConsultaDetalhada], tags=["schedule"])
 def listar_consultas(
     tenant: TenantDep,
     profissional_id: Annotated[str | None, Query()] = None,
     data: Annotated[
-        datetime | None, Query(description="Filtra pelo dia (America/Bahia).")
+        datetime | None, Query(description="Filter by day (America/Bahia).")
     ] = None,
 ) -> list[ConsultaDetalhada]:
     return [_detalhar(c) for c in store.listar(tenant, profissional_id, data)]
@@ -158,24 +158,24 @@ def listar_consultas(
 @app.get(
     "/consultas/{consulta_id}",
     response_model=ConsultaDetalhada,
-    tags=["agenda"],
-    responses={404: {"description": "Consulta inexistente nesta sessão."}},
+    tags=["schedule"],
+    responses={404: {"description": "No such appointment in this session."}},
 )
 def obter_consulta(consulta_id: str, tenant: TenantDep) -> ConsultaDetalhada:
     c = tenant.consultas.get(consulta_id)
     if c is None:
         # Id de outro tenant cai aqui: 404, nunca o dado do vizinho.
-        raise HTTPException(status_code=404, detail="Consulta não encontrada.")
+        raise HTTPException(status_code=404, detail="Appointment not found.")
     return _detalhar(c)
 
 
 @app.patch(
     "/consultas/{consulta_id}",
     response_model=ConsultaDetalhada,
-    tags=["agenda"],
+    tags=["schedule"],
     responses={
-        404: {"description": "Consulta inexistente nesta sessão."},
-        409: {"description": "Horário ocupado."},
+        404: {"description": "No such appointment in this session."},
+        409: {"description": "Slot already taken."},
     },
 )
 def remarcar_consulta(
@@ -186,7 +186,7 @@ def remarcar_consulta(
 ) -> ConsultaDetalhada:
     c = tenant.consultas.get(consulta_id)
     if c is None or c.status is ConsultaStatus.CANCELADA:
-        raise HTTPException(status_code=404, detail="Consulta não encontrada.")
+        raise HTTPException(status_code=404, detail="Appointment not found.")
 
     duracao = c.fim - c.inicio
     novo_inicio = body.novo_inicio
@@ -201,7 +201,7 @@ def remarcar_consulta(
             continue
         if novo_inicio < outra.fim and outra.inicio < novo_fim:
             raise HTTPException(
-                status_code=409, detail="Horário já ocupado para este profissional."
+                status_code=409, detail="Slot already taken for this practitioner."
             )
 
     c.inicio = novo_inicio
@@ -212,8 +212,8 @@ def remarcar_consulta(
 @app.post(
     "/consultas/{consulta_id}/cancelamento",
     response_model=ConsultaDetalhada,
-    tags=["agenda"],
-    responses={404: {"description": "Consulta inexistente nesta sessão."}},
+    tags=["schedule"],
+    responses={404: {"description": "No such appointment in this session."}},
 )
 def cancelar_consulta(
     consulta_id: str,
@@ -223,7 +223,7 @@ def cancelar_consulta(
 ) -> ConsultaDetalhada:
     c = tenant.consultas.get(consulta_id)
     if c is None:
-        raise HTTPException(status_code=404, detail="Consulta não encontrada.")
+        raise HTTPException(status_code=404, detail="Appointment not found.")
     c.status = ConsultaStatus.CANCELADA
     c.motivo_cancelamento = body.motivo
     return _detalhar(c)
@@ -233,10 +233,10 @@ def cancelar_consulta(
     "/consultas",
     response_model=ConsultaDetalhada,
     status_code=201,
-    tags=["agenda"],
+    tags=["schedule"],
     responses={
-        409: {"description": "Horário ocupado."},
-        422: {"description": "Duração inválida."},
+        409: {"description": "Slot already taken."},
+        422: {"description": "Invalid duration."},
     },
 )
 def abrir_vaga(
@@ -245,14 +245,14 @@ def abrir_vaga(
     if len(tenant.consultas) >= MAX_CONSULTAS_POR_TENANT:
         raise HTTPException(
             status_code=429,
-            detail="Esta agenda de demonstração atingiu o limite de consultas.",
+            detail="This demo schedule hit its appointment limit.",
         )
     if body.duracao_min not in DURACOES_VALIDAS:
         raise HTTPException(
-            status_code=422, detail="Duração deve ser 30, 45 ou 60 minutos."
+            status_code=422, detail="Duration must be 30, 45 or 60 minutes."
         )
     if not any(p.id == body.profissional_id for p in PROFISSIONAIS):
-        raise HTTPException(status_code=404, detail="Profissional não encontrado.")
+        raise HTTPException(status_code=404, detail="Practitioner not found.")
 
     fim = body.inicio + timedelta(minutes=body.duracao_min)
     for outra in tenant.consultas.values():
@@ -263,7 +263,7 @@ def abrir_vaga(
             continue
         if body.inicio < outra.fim and outra.inicio < fim:
             raise HTTPException(
-                status_code=409, detail="Horário já ocupado para este profissional."
+                status_code=409, detail="Slot already taken for this practitioner."
             )
 
     cid = store.novo_id()
@@ -282,30 +282,34 @@ def abrir_vaga(
 
 
 @app.post(
-    "/admin/chaos", tags=["demo"], summary="Liga ou desliga o modo caos desta sessão"
+    "/admin/chaos", tags=["demo"], summary="Turn chaos mode on or off for this session"
 )
 def chaos(
     ligado: bool,
     x_tenant_id: Annotated[str, Header()] = "demo",
 ) -> dict[str, bool]:
-    """Com o caos ligado, todo endpoint de agenda responde 503 para esta sessão.
+    """With chaos on, every schedule endpoint answers 503 for this session.
 
-    Existe para o visitante ver o agente falhando com honestidade: ele diz que
-    não conseguiu gravar e escala, em vez de devolver uma confirmação inventada.
+    It exists so the visitor can watch the agent fail honestly: it says it could
+    not write and escalates, instead of returning a made-up confirmation.
     """
     t = store.tenant(x_tenant_id[:64], agora())
     t.down = ligado
     return {"down": t.down}
 
 
-@app.post("/admin/reset", tags=["demo"], summary="Recria a agenda inicial desta sessão")
+@app.post(
+    "/admin/reset", tags=["demo"], summary="Rebuild this session's initial schedule"
+)
 def reset(x_tenant_id: Annotated[str, Header()] = "demo") -> Response:
     store.reset(x_tenant_id[:64], agora())
     return Response(status_code=204)
 
 
 @app.get(
-    "/admin/estado", tags=["demo"], summary="Agenda inteira desta sessão, para o painel"
+    "/admin/estado",
+    tags=["demo"],
+    summary="This session's full schedule, for the panel",
 )
 def estado(x_tenant_id: Annotated[str, Header()] = "demo") -> dict[str, object]:
     t = store.tenant(x_tenant_id[:64], agora())

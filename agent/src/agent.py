@@ -46,8 +46,12 @@ MAX_ITERACOES = 6
 # é a pior saída: a pessoa fala, some o "pensando…" e nada aparece — parece
 # quebrado. Estas frases são as ÚNICAS que este arquivo põe na boca do agente, e
 # nenhuma delas afirma que algo foi feito.
-FALLBACK_CONFIRMACAO = "Confirma para eu executar?"
-FALLBACK_MUDO = "Me perdi aqui. Pode repetir?"
+#
+# Em inglês porque a interface é em inglês: são as duas frases que o CÓDIGO
+# emite, então não têm como seguir o idioma da pessoa como o modelo segue. É
+# raro chegarem à tela, e o inglês é o idioma padrão da demo.
+FALLBACK_CONFIRMACAO = "Shall I go ahead?"
+FALLBACK_MUDO = "Sorry, I lost track. Could you say that again?"
 
 HANDLERS = {
     "listar_agenda": listar_agenda,
@@ -126,7 +130,7 @@ class Agente:
             except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
                 conv.escalar("tool_failure_repeated")
                 yield Evento(
-                    "error", {"mensagem": "O assistente está indisponível agora."}
+                    "error", {"mensagem": "The assistant is unavailable right now."}
                 )
                 yield Evento(
                     "escalated",
@@ -139,7 +143,7 @@ class Agente:
                 conv.escalar("out_of_scope")
                 yield Evento(
                     "message",
-                    {"texto": "Não consigo ajudar com isso. Vou chamar a recepção."},
+                    {"texto": "I can't help with that. Let me get a human for you."},
                 )
                 yield Evento("escalated", {"motivo": "out_of_scope"})
                 return

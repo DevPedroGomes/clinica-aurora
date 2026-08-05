@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clínica Aurora — agente que escreve na agenda</title>
-<meta name="description" content="Demo pública: um agente de IA que escreve numa agenda real e recusa quando a regra não deixa. O ERP é publicado junto.">
+<title>Clínica Aurora — an agent that writes to a real schedule</title>
+<meta name="description" content="Live demo: an AI agent that writes to a real schedule and refuses when the business rule says no. The ERP it writes to is published alongside it.">
 <meta name="author" content="Pedro Gomes">
 
 <!-- Sem estas tags o link vira URL crua no LinkedIn, no WhatsApp e no Upwork —
@@ -12,16 +12,16 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aurora.pgdev.com.br/">
 <meta property="og:site_name" content="Gomio">
-<meta property="og:locale" content="pt_BR">
-<meta property="og:title" content="Um agente que escreve na agenda — e recusa quando a regra não deixa">
-<meta property="og:description" content="Demo pública e aberta: converse com o agente e veja a linha mudar no ERP ao vivo. O ERP é publicado junto, com OpenAPI, para você inspecionar o outro lado da integração.">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="An agent that writes to the schedule — and refuses when the rule says no">
+<meta property="og:description" content="Open demo, no signup: talk to the agent and watch the row change in the ERP live. The ERP ships with it, OpenAPI and all, so you can inspect the other side of the integration.">
 <meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Clínica Aurora — demo pública de um agente que escreve numa agenda real.">
+<meta property="og:image:alt" content="Clínica Aurora — live demo of an agent that writes to a real schedule.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Um agente que escreve na agenda — e recusa quando a regra não deixa">
-<meta name="twitter:description" content="Demo pública: converse com o agente e veja a linha mudar no ERP ao vivo.">
+<meta name="twitter:title" content="An agent that writes to the schedule — and refuses when the rule says no">
+<meta name="twitter:description" content="Live demo: talk to the agent and watch the row change in the ERP.">
 <meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
 
 <!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
@@ -124,52 +124,52 @@
     Clínica Aurora
     <!-- Quem se impressiona com a demo precisa de um caminho para quem a fez.
          Sem isto a página termina em si mesma. -->
-    <span class="por">demo de <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a></span>
+    <span class="por">a demo by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a></span>
   </div>
   <p class="aviso">
-    Clínica <strong>fictícia</strong>. O ERP dela é publicado junto — a escrita acontece de verdade, sobre HTTP, contra
-    <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">um serviço separado que você pode inspecionar</a>.
+    A <strong>fictional</strong> clinic. Its ERP is published alongside — the write really happens, over HTTP, against
+    <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">a separate service you can inspect</a>.
   </p>
   <div class="acoes">
-    <button id="chaos" class="perigo" aria-pressed="false">Derrubar o sistema</button>
-    <button id="reset">Recomeçar</button>
+    <button id="chaos" class="perigo" aria-pressed="false">Break the system</button>
+    <button id="reset">Restart</button>
   </div>
 </header>
 
 <main class="tela">
   <section class="col">
-    <div class="cabeca"><span>Conversa · recepção da clínica</span><span id="estado">início</span></div>
+    <div class="cabeca"><span>Conversation · clinic front desk</span><span id="estado">start</span></div>
     <div class="chat" id="chat">
-      <div class="bolha ela">Oi! Sou a assistente da recepção. Posso consultar a agenda, remarcar, cancelar e abrir horários. O que você precisa?</div>
+      <div class="bolha ela">Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Write in any language — I'll answer in yours. What do you need?</div>
     </div>
     <div class="sugestoes" id="sugestoes"></div>
     <form class="barra" id="form">
-      <input id="entrada" placeholder="remarca a consulta da Ana pras 16h" autocomplete="off" maxlength="500">
-      <button type="submit" id="enviar">Enviar</button>
+      <input id="entrada" placeholder="move Ana's appointment to 4pm" autocomplete="off" maxlength="500">
+      <button type="submit" id="enviar">Send</button>
     </form>
   </section>
 
   <section class="col">
-    <div class="cabeca"><span>Agenda no ERP</span><span id="erpstatus">no ar</span></div>
+    <div class="cabeca"><span>Schedule in the ERP</span><span id="erpstatus">online</span></div>
     <div class="direita">
       <div>
         <table>
-          <thead><tr><th>Consulta</th><th>Paciente</th><th>Profissional</th><th>Início</th></tr></thead>
-          <tbody id="agenda"><tr><td colspan="4" class="vazio">carregando…</td></tr></tbody>
+          <thead><tr><th>Appointment</th><th>Patient</th><th>Practitioner</th><th>Starts</th></tr></thead>
+          <tbody id="agenda"><tr><td colspan="4" class="vazio">loading…</td></tr></tbody>
         </table>
       </div>
       <div>
-        <div class="cabeca" style="padding:0 0 .6rem;border:0">Log de decisão</div>
-        <div class="log" id="log"><p class="vazio">Cada chamada de ferramenta, cada decisão da política e cada escrita aparecem aqui, com o código da regra que decidiu.</p></div>
+        <div class="cabeca" style="padding:0 0 .6rem;border:0">Decision log</div>
+        <div class="log" id="log"><p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p></div>
       </div>
     </div>
     <div class="rodape">
-      <strong style="color:rgba(255,255,255,.75)">Limites da demo</strong> · sessão anônima com agenda isolada · máx. 3 escritas por conversa ·
-      teto diário de turnos e kill switch · nada persiste depois da sessão.
+      <strong style="color:rgba(255,255,255,.75)">Demo limits</strong> · anonymous session with its own isolated schedule · max 3 writes per conversation ·
+      daily turn cap and kill switch · nothing persists after the session.
       <div class="assinatura">
-        Construído por <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a> ·
+        Built by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a> ·
         <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
-        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener">outros projetos</a>
+        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener">other projects</a>
       </div>
     </div>
   </section>
@@ -182,22 +182,26 @@ let ultimoEstadoAgenda = new Map();
 
 // O estado da conversa é prova de que existe uma máquina explícita por trás —
 // mas o visitante não fala o vocabulário dela. O valor técnico fica no title,
-// para quem quiser inspecionar.
+// para quem quiser inspecionar. Os rótulos são em inglês porque a interface é;
+// a CONVERSA acompanha o idioma de quem escreve (regra no system prompt).
 const ESTADOS = {
-  greeting: "início",
-  qualifying: "entendendo o pedido",
-  collecting: "coletando os dados",
-  confirming: "aguardando sua confirmação",
-  executing: "executando",
-  resolved: "concluído",
-  escalated: "passou para uma pessoa",
+  greeting: "start",
+  qualifying: "reading the request",
+  collecting: "collecting details",
+  confirming: "waiting for your confirmation",
+  executing: "executing",
+  resolved: "done",
+  escalated: "handed to a human",
 };
 
+// A quarta e de proposito fora de escopo. A quinta esta em espanhol: mostra,
+// sem precisar explicar, que a conversa acompanha o idioma de quem escreve.
 const SUGESTOES = [
-  "quantas consultas o Dr. Bruno tem amanhã?",
-  "remarca a da Ana pras 16h",
-  "cancela a consulta do João",
-  "me escreve um poema sobre o mar",
+  "how many appointments does Dr. Bruno have tomorrow?",
+  "move Ana's appointment to 4pm",
+  "cancel João's appointment",
+  "write me a poem about the sea",
+  "¿qué tiene la agenda para mañana?",
 ];
 
 function bolha(texto, quem) {
@@ -225,7 +229,9 @@ function esc(s) {
 function hora(iso) {
   try {
     // timeZone fixo: a agenda e da clinica, nao do navegador de quem visita.
-    return new Date(iso).toLocaleString("pt-BR", {
+    // Locale en-US porque a INTERFACE e em ingles; o fuso continua o da clinica,
+    // senao um visitante em Berlim leria um horario que nao existe na agenda.
+    return new Date(iso).toLocaleString("en-US", {
       timeZone: "America/Bahia",
       weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     });
@@ -236,7 +242,7 @@ async function carregarAgenda() {
   try {
     const r = await fetch("/api/estado");
     const d = await r.json();
-    $("#erpstatus").textContent = d.down ? "fora do ar (503)" : "no ar";
+    $("#erpstatus").textContent = d.down ? "down (503)" : "online";
     $("#erpstatus").style.color = d.down ? "var(--erro)" : "";
     const st = d.conversa?.estado || "";
     $("#estado").textContent = ESTADOS[st] || st;
@@ -245,7 +251,7 @@ async function carregarAgenda() {
 
     agenda.innerHTML = "";
     if (!d.consultas?.length) {
-      agenda.innerHTML = '<tr><td colspan="4" class="vazio">nenhuma consulta</td></tr>';
+      agenda.innerHTML = '<tr><td colspan="4" class="vazio">no appointments</td></tr>';
       return;
     }
     const novo = new Map();
@@ -260,7 +266,7 @@ async function carregarAgenda() {
     }
     ultimoEstadoAgenda = novo;
   } catch {
-    $("#erpstatus").textContent = "sem resposta";
+    $("#erpstatus").textContent = "no response";
   }
 }
 
@@ -270,7 +276,7 @@ async function enviar(texto) {
   bolha(texto, "eu");
   const pensando = document.createElement("div");
   pensando.className = "pensando";
-  pensando.textContent = "pensando…";
+  pensando.textContent = "thinking…";
   chat.appendChild(pensando);
   chat.scrollTop = chat.scrollHeight;
 
@@ -283,7 +289,7 @@ async function enviar(texto) {
     if (!r.ok) {
       const detalhe = await r.json().catch(() => ({}));
       pensando.remove();
-      bolha(typeof detalhe.detail === "string" ? detalhe.detail : "A demo está indisponível agora.", "sistema");
+      bolha(typeof detalhe.detail === "string" ? detalhe.detail : "This demo is unavailable right now.", "sistema");
       return;
     }
 
@@ -305,7 +311,7 @@ async function enviar(texto) {
       }
     }
   } catch {
-    bolha("Perdi a conexão. Tente de novo.", "sistema");
+    bolha("Lost the connection. Try again.", "sistema");
   } finally {
     $("#enviar").disabled = false;
     carregarAgenda();
@@ -327,21 +333,21 @@ function renderizar(tipo, d) {
       break;
     case "policy":
       evento("policy",
-        `<b>${esc(d.regra)}</b> → ${d.allowed ? "permitido" : "recusado"} · <b>${esc(d.reason_code)}</b>`,
+        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : "refused"} · <b>${esc(d.reason_code)}</b>`,
         d.allowed ? "permitido" : "negado");
       break;
     case "write":
-      evento("gravado", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
+      evento("written", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
       break;
     case "tool_result":
-      evento("resultado", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado).slice(0, 220))}`);
+      evento("result", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado).slice(0, 220))}`);
       break;
     case "tool_error":
-      evento("falhou", `<b>${esc(d.tool)}</b> · ${esc(d.code)}`, "erro");
+      evento("failed", `<b>${esc(d.tool)}</b> · ${esc(d.code)}`, "erro");
       break;
     case "escalated":
-      evento("escalou", `passou para uma pessoa · <b>${esc(d.motivo)}</b>`, "erro");
-      bolha("A conversa foi passada para a recepção. Clique em Recomeçar para testar de novo.", "sistema");
+      evento("escalated", `handed to a human · <b>${esc(d.motivo)}</b>`, "erro");
+      bolha("This conversation was handed to a human. Click Restart to try again.", "sistema");
       break;
     case "error":
       bolha(d.mensagem, "sistema");
@@ -360,16 +366,16 @@ $("#chaos").addEventListener("click", async () => {
   await fetch(`/api/chaos?ligado=${ligar}`, { method: "POST" });
   await carregarAgenda();
   bolha(ligar
-    ? "O ERP está fora do ar nesta sessão. Peça uma alteração e veja o que o agente faz."
-    : "O ERP voltou.", "sistema");
+    ? "The ERP is down for this session. Ask for a change and watch what the agent does."
+    : "The ERP is back.", "sistema");
 });
 
 $("#reset").addEventListener("click", async () => {
   await fetch("/api/reset", { method: "POST" });
   chat.innerHTML = "";
-  log.innerHTML = '<p class="vazio">Cada chamada de ferramenta, cada decisão da política e cada escrita aparecem aqui, com o código da regra que decidiu.</p>';
+  log.innerHTML = '<p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p>';
   ultimoEstadoAgenda = new Map();
-  bolha("Agenda e conversa recomeçadas.", "sistema");
+  bolha("Schedule and conversation restarted.", "sistema");
   carregarAgenda();
 });
 
