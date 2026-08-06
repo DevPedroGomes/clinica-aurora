@@ -82,7 +82,15 @@
   .pensando{align-self:flex-start;color:var(--txt3);font-size:13px}
 
   .sugestoes{display:flex;flex-wrap:wrap;gap:.4rem;padding:0 1.1rem .7rem}
-  .sugestoes button{font-size:12px;padding:.35rem .7rem}
+  .sugestoes button{font-size:12px;padding:.35rem .7rem;display:flex;flex-direction:column;
+    align-items:flex-start;gap:.15rem;text-align:left;line-height:1.25}
+  /* O rótulo diz o que o botão PROVA; a mensagem em si fica secundária. Sem
+     isso o visitante clica na recusa por política e pode ler como bot falhando. */
+  .sugestoes .rotulo{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--txt3);font-weight:600}
+  /* Versão da política ao lado do código da regra: é o que prova, meses
+     depois, sob qual regra a decisão foi tomada. */
+  .versao{font-size:10px;color:var(--txt3);margin-left:.35rem;white-space:nowrap}
   .barra{display:flex;gap:.5rem;padding:.9rem 1.1rem;border-top:1px solid var(--linha)}
   .barra input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--linha);color:var(--txt);
     border-radius:10px;padding:.6rem .8rem;font:inherit;font-size:14px}
@@ -196,12 +204,16 @@ const ESTADOS = {
 
 // A quarta e de proposito fora de escopo. A quinta esta em espanhol: mostra,
 // sem precisar explicar, que a conversa acompanha o idioma de quem escreve.
+// Cada sugestão vem rotulada com o que ela PROVA. Sem o rótulo o visitante não
+// sabe que "cancel João's appointment" é justamente o botão que faz o agente
+// ser recusado por uma regra de negócio — que é a coisa mais rara desta demo.
+// Ele clicava, via uma recusa, e podia ler como o bot falhando.
 const SUGESTOES = [
-  "how many appointments does Dr. Bruno have tomorrow?",
-  "move Ana's appointment to 4pm",
-  "cancel João's appointment",
-  "write me a poem about the sea",
-  "¿qué tiene la agenda para mañana?",
+  { rotulo: "read the schedule", msg: "how many appointments does Dr. Bruno have tomorrow?" },
+  { rotulo: "a write that goes through", msg: "move Ana's appointment to 4pm" },
+  { rotulo: "a write a rule refuses", msg: "cancel João's appointment" },
+  { rotulo: "off-scope → escalates", msg: "write me a poem about the sea" },
+  { rotulo: "answers in your language", msg: "¿qué tiene la agenda para mañana?" },
 ];
 
 function bolha(texto, quem) {
@@ -332,8 +344,13 @@ function renderizar(tipo, d) {
         `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.input))}`);
       break;
     case "policy":
+      // A VERSÃO da política entra na linha junto com o código da regra. É o
+      // que sustenta a afirmação de que, meses depois, dá para provar sob qual
+      // versão da regra a decisão foi tomada — o backend já mandava
+      // `rules_version` no evento e a UI simplesmente descartava.
       evento("policy",
-        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : "refused"} · <b>${esc(d.reason_code)}</b>`,
+        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : "refused"} · <b>${esc(d.reason_code)}</b>`
+          + (d.rules_version ? ` <span class="versao">policy ${esc(d.rules_version)}</span>` : ""),
         d.allowed ? "permitido" : "negado");
       break;
     case "write":
@@ -381,8 +398,8 @@ $("#reset").addEventListener("click", async () => {
 
 for (const s of SUGESTOES) {
   const b = document.createElement("button");
-  b.textContent = s;
-  b.addEventListener("click", () => enviar(s));
+  b.innerHTML = `<span class="rotulo">${esc(s.rotulo)}</span>${esc(s.msg)}`;
+  b.addEventListener("click", () => enviar(s.msg));
   $("#sugestoes").appendChild(b);
 }
 
