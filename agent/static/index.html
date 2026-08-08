@@ -216,7 +216,10 @@ const SUGESTOES = [
   { rotulo: "read the schedule", msg: "what's on Dr. Bruno's schedule?" },
   { rotulo: "a write that goes through", msg: "move Ana's appointment to 4pm" },
   { rotulo: "a write a rule refuses", msg: "cancel João's appointment" },
-  { rotulo: "off-scope → escalates", msg: "write me a poem about the sea" },
+  // "escalates" era promessa errada: pedido fora de escopo recebe uma recusa
+  // curta e a conversa segue, que é o que o prompt manda e o que o README
+  // descreve. Quem escala é o momento do ERP derrubado, no botão ao lado.
+  { rotulo: "off-scope → refused", msg: "write me a poem about the sea" },
   { rotulo: "answers in your language", msg: "¿qué hay en la agenda?" },
 ];
 

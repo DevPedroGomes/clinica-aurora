@@ -428,6 +428,30 @@ async def test_teto_de_escritas_escala(ctx: AgentContext):
     assert conv.state is State.ESCALATED
     negadas = [e for e in eventos if e.tipo == "policy" and not e.dado["allowed"]]
     assert negadas and negadas[0].dado["reason_code"] == "write_quota_exceeded"
+    # Toda linha de policy carrega a versão da regra. A do teto era a única
+    # sem, do lado de outra que tinha: parecia que a versão valia só para
+    # algumas decisões.
+    assert all(e.dado.get("rules_version") for e in eventos if e.tipo == "policy")
+
+
+async def test_teto_de_escritas_entra_no_audit_com_nome_proprio(ctx: AgentContext):
+    """A decisão do teto não pode se confundir com a da regra da tool.
+
+    Gravada sob o nome da tool, ela produzia duas linhas de audit chamadas
+    "remarcar_consulta" para decisões diferentes — só o formato do payload
+    distinguia uma da outra.
+    """
+    entrada = {"consulta_id": "cons_1", "novo_inicio": AMANHA_16H}
+    ctx.confirmacoes.add(assinatura("remarcar_consulta", entrada))
+
+    llm = FakeLLM([tool_use("remarcar_consulta", entrada)], [texto("Pronto.")])
+    await coletar(Agente(llm), Conversation(), "remarca", ctx)
+
+    quota = [e for e in ctx.audit if e.tool == "write_quota"]
+    assert len(quota) == 1
+    # E a tool que o teto estava barrando não some do registro.
+    assert quota[0].input["tool"] == "remarcar_consulta"
+    assert quota[0].rules_version == ctx.policy.version
 
 
 async def test_erp_fora_do_ar_escala_sem_inventar(ctx: AgentContext, erp: ErpFake):

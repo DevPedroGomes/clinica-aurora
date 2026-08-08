@@ -272,10 +272,16 @@ class Agente:
             decisao_quota = ctx.policy.pode_escrever(
                 escritas_na_conversa=ctx.escritas_realizadas
             )
+            # Esta decisão é do teto de escritas (P-5), não da regra da tool, e
+            # precisa ser gravada com nome próprio: registrada sob `spec.name`
+            # ela produzia DUAS linhas de audit chamadas "remarcar_consulta"
+            # para decisões diferentes, distinguíveis só pelo formato do
+            # payload. Qual tool o teto estava barrando entra no payload, que é
+            # onde a informação não some.
             ctx.registrar(
                 kind="policy_decision",
-                tool=spec.name,
-                input=decisao_quota.audit_payload,
+                tool="write_quota",
+                input={**decisao_quota.audit_payload, "tool": spec.name},
                 output={"allowed": decisao_quota.allowed},
                 reason_code=decisao_quota.reason_code,
             )
@@ -285,6 +291,10 @@ class Agente:
                     "regra": "write_quota",
                     "allowed": decisao_quota.allowed,
                     "reason_code": decisao_quota.reason_code,
+                    # Sem isto a linha do teto era a única do log sem o selo da
+                    # versão, do lado de outra que tinha — parecia que a versão
+                    # valia para umas decisões e não para outras.
+                    "rules_version": ctx.policy.version,
                 },
             )
             if not decisao_quota.allowed:
