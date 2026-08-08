@@ -208,12 +208,16 @@ const ESTADOS = {
 // sabe que "cancel João's appointment" é justamente o botão que faz o agente
 // ser recusado por uma regra de negócio — que é a coisa mais rara desta demo.
 // Ele clicava, via uma recusa, e podia ler como o bot falhando.
+// Nenhum preset fala em "amanhã". A agenda é semeada no próximo dia ÚTIL,
+// que numa sexta ou num sábado não é amanhã — os dois presets que perguntavam
+// pelo dia seguinte devolviam agenda vazia justamente nesses dias, e o de ler
+// a agenda parecia um agente que não acha o que existe.
 const SUGESTOES = [
-  { rotulo: "read the schedule", msg: "how many appointments does Dr. Bruno have tomorrow?" },
+  { rotulo: "read the schedule", msg: "what's on Dr. Bruno's schedule?" },
   { rotulo: "a write that goes through", msg: "move Ana's appointment to 4pm" },
   { rotulo: "a write a rule refuses", msg: "cancel João's appointment" },
   { rotulo: "off-scope → escalates", msg: "write me a poem about the sea" },
-  { rotulo: "answers in your language", msg: "¿qué tiene la agenda para mañana?" },
+  { rotulo: "answers in your language", msg: "¿qué hay en la agenda?" },
 ];
 
 function bolha(texto, quem) {
@@ -272,8 +276,13 @@ async function carregarAgenda() {
       const mudou = ultimoEstadoAgenda.size && ultimoEstadoAgenda.get(c.id) !== c.inicio + c.status;
       const tr = document.createElement("tr");
       tr.className = (c.status === "cancelada" ? "cancelada " : "") + (mudou ? "mudou" : "");
+      // Vaga aberta vem com paciente_nome vazio, e vazio na coluna "Patient"
+      // lia como consulta que perdeu o nome. Ela não perdeu: não tem titular.
+      const paciente = c.paciente_nome
+        ? esc(c.paciente_nome)
+        : `<span style="color:var(--txt3)">open slot</span>`;
       tr.innerHTML = `<td style="font-family:var(--mono);font-size:12px">${esc(c.id)}</td>
-        <td>${esc(c.paciente_nome)}</td><td>${esc(c.profissional_nome)}</td><td>${esc(hora(c.inicio))}</td>`;
+        <td>${paciente}</td><td>${esc(c.profissional_nome)}</td><td>${esc(hora(c.inicio))}</td>`;
       agenda.appendChild(tr);
     }
     ultimoEstadoAgenda = novo;
@@ -343,13 +352,24 @@ function renderizar(tipo, d) {
       evento(d.scope === "write" ? "tool · write" : "tool · read",
         `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.input))}`);
       break;
+    case "confirmation_required":
+      // A linha que faltava. Sem ela o log mostrava a MESMA escrita duas vezes
+      // (a barrada e a executada) sem nada explicando a diferença, e o gate —
+      // que é a garantia central desta demo — não aparecia em lugar nenhum.
+      evento("gate · held",
+        `<b>${esc(d.tool)}</b> not executed — waiting for the person to confirm`,
+        "negado");
+      break;
     case "policy":
       // A VERSÃO da política entra na linha junto com o código da regra. É o
       // que sustenta a afirmação de que, meses depois, dá para provar sob qual
       // versão da regra a decisão foi tomada — o backend já mandava
       // `rules_version` no evento e a UI simplesmente descartava.
+      //
+      // O reason_code só entra quando ACRESCENTA: quando a decisão é permitir,
+      // ele vale literalmente "allowed" e a linha saía "allowed · allowed".
       evento("policy",
-        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : "refused"} · <b>${esc(d.reason_code)}</b>`
+        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : `refused · <b>${esc(d.reason_code)}</b>`}`
           + (d.rules_version ? ` <span class="versao">policy ${esc(d.rules_version)}</span>` : ""),
         d.allowed ? "permitido" : "negado");
       break;

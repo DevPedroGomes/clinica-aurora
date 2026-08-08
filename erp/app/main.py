@@ -123,9 +123,14 @@ TenantDep = Annotated[Tenant, Depends(get_tenant)]
 def _detalhar(c: Consulta) -> ConsultaDetalhada:
     pac = next((p for p in PACIENTES if p.id == c.paciente_id), None)
     prof = next((p for p in PROFISSIONAIS if p.id == c.profissional_id), None)
+    # Sem paciente devolve string VAZIA, e não "—". São coisas diferentes: vazio
+    # é uma vaga livre, que não tem titular por definição; "—" é um id que
+    # aponta para um cadastro que não existe, e isso é defeito de dado. Colapsar
+    # os dois fazia a vaga aberta aparecer no painel como uma consulta cujo
+    # nome do paciente sumiu.
     return ConsultaDetalhada(
         **c.model_dump(),
-        paciente_nome=pac.nome if pac else "—",
+        paciente_nome=(pac.nome if pac else "—") if c.paciente_id else "",
         profissional_nome=prof.nome if prof else "—",
     )
 
@@ -262,6 +267,11 @@ def abrir_vaga(
         )
     if not any(p.id == body.profissional_id for p in PROFISSIONAIS):
         raise HTTPException(status_code=404, detail="Practitioner not found.")
+    # Vazio é válido (vaga sem titular). Preenchido tem que existir: aceitar um
+    # id qualquer criaria uma consulta apontando para um paciente inventado, que
+    # é exatamente o tipo de escrita que esta demo existe para tornar impossível.
+    if body.paciente_id and not any(p.id == body.paciente_id for p in PACIENTES):
+        raise HTTPException(status_code=404, detail="Patient not found.")
 
     fim = body.inicio + timedelta(minutes=body.duracao_min)
     for outra in tenant.consultas.values():
@@ -278,7 +288,7 @@ def abrir_vaga(
     cid = store.novo_id()
     consulta = Consulta(
         id=cid,
-        paciente_id="",
+        paciente_id=body.paciente_id,
         profissional_id=body.profissional_id,
         inicio=body.inicio,
         fim=fim,

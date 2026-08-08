@@ -8,3 +8,7 @@ venv/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+
+# Trava de deploy, local da VPS: o autopull pula o diretorio enquanto existir.
+# Nunca vai para o repo — commitado, congelaria o deploy para sempre.
+.deploy-freeze

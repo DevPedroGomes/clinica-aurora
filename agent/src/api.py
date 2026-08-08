@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
@@ -38,6 +39,15 @@ RATE_POR_IP = 30  # mensagens por 10 minutos
 JANELA_RATE = 600
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
+
+# O uvicorn configura os loggers dele e deixa o root intocado, cujo handler
+# de último recurso corta tudo abaixo de WARNING. Sem esta linha o audit log
+# de `registry.py` era emitido e descartado silenciosamente — pior que não ter,
+# porque parecia existir.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(message)s",
+)
 
 app = FastAPI(
     title="Clínica Aurora — demo", docs_url=None, redoc_url=None, openapi_url=None

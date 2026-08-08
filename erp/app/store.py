@@ -29,6 +29,10 @@ MAX_CONSULTAS_POR_TENANT = 40
 
 BAHIA = timezone(timedelta(hours=-3))
 
+# 5 = sábado (a clínica fecha ao meio-dia), 6 = domingo (não abre). Nenhum dos
+# dois comporta um dia de agenda inteiro, então a semeadura os pula.
+FIM_DE_SEMANA = {5, 6}
+
 PROFISSIONAIS = [
     Profissional(
         id="prof_bruno", nome="Dr. Bruno Salles", especialidade="Clínico geral"
@@ -53,25 +57,51 @@ class Tenant:
     """Quando True o ERP responde 503 para este tenant. É o botão 'derrubar o sistema'."""
 
 
+def _proximo_dia_util(hoje: datetime) -> datetime:
+    """Primeiro dia de expediente INTEIRO depois de hoje, às 9h.
+
+    "Amanhã" não serve de âncora, e isso não era teórico: num sábado a agenda
+    inteira nascia num domingo, dia em que a clínica não abre, e o preset do
+    caminho feliz — remarcar para as 16h — era RECUSADO por outside_business_hours.
+    Numa sexta dava no mesmo, porque sábado fecha ao meio-dia. Dois dias em sete
+    a demo abria provando o contrário do que se propõe a provar.
+
+    Segunda a sexta é o único intervalo em que 08:00–18:00 vale por completo, e
+    é por isso que a busca pula o fim de semana.
+
+    Nota de acoplamento: o expediente vive em `policy/rules.yaml`, do lado do
+    agente. Aqui a clínica só precisa saber quando ela mesma abre — um ERP real
+    sabe —, mas os dois têm que contar a mesma história. Mudou o expediente lá,
+    revise `FIM_DE_SEMANA` aqui.
+    """
+    dia = hoje + timedelta(days=1)
+    while dia.weekday() in FIM_DE_SEMANA:
+        dia += timedelta(days=1)
+    return dia.replace(hour=9, minute=0, second=0, microsecond=0)
+
+
 def _seed(agora: datetime, ids: count) -> dict[str, Consulta]:
     """Agenda inicial ancorada no relógio, não em datas fixas.
 
-    A demo precisa que exista sempre: uma consulta longe (remarcável), uma dentro
-    da janela de 24h (para provar a recusa por política) e um horário ocupado
-    (para provar o conflito).
+    A demo precisa que exista sempre: uma consulta remarcável dentro do
+    expediente, um horário ocupado no mesmo dia (para provar o conflito) e uma
+    consulta dentro da janela de 24h (para provar a recusa por política).
     """
     hoje = agora.astimezone(BAHIA)
-    amanha = (hoje + timedelta(days=1)).replace(
-        hour=9, minute=0, second=0, microsecond=0
-    )
+    util = _proximo_dia_util(hoje)
     daqui_2h = (hoje + timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
 
     linhas = [
-        # longe o suficiente para ser remarcada sem cair na regra das 24h
-        ("pac_ana", "prof_bruno", amanha, 45),
-        # ocupa 11h de amanhã: qualquer remarcação para cá dá SLOT_CONFLICT
-        ("pac_marta", "prof_bruno", amanha.replace(hour=11), 30),
-        # daqui a 2h: cancelar isto exige motivo (CANCEL_WINDOW_REQUIRES_REASON)
+        # Dia útil inteiro: remarcar para as 16h cabe no expediente em qualquer
+        # dia da semana em que a demo for aberta.
+        ("pac_ana", "prof_bruno", util, 45),
+        # ocupa 11h do mesmo dia: qualquer remarcação para cá dá SLOT_CONFLICT
+        ("pac_marta", "prof_bruno", util.replace(hour=11), 30),
+        # daqui a 2h: cancelar isto exige motivo (CANCEL_WINDOW_REQUIRES_REASON).
+        # Ancorada no relógio DE PROPÓSITO, e não no expediente: P-1 olha a
+        # antecedência (<24h), e num sábado à tarde não existe horário que seja
+        # ao mesmo tempo de expediente e a menos de 24h daqui. Entre uma linha
+        # fora do horário de atendimento e um preset que não prova nada, a linha.
         ("pac_joao", "prof_helena", daqui_2h, 30),
     ]
 

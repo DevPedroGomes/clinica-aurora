@@ -321,7 +321,11 @@ class AbrirVagaInput(BaseModel):
 
 @tool(
     scope="write",
-    idempotent=True,
+    # NÃO é idempotente, por mais que pareça: a segunda chamada com os mesmos
+    # argumentos não é absorvida, ela colide com a vaga que a primeira criou e
+    # o ERP devolve 409. Declarar True aqui era descrever um comportamento que
+    # o outro lado não tem.
+    idempotent=False,
     requires_confirmation=True,
     rate_limit=5,
     pii_level="none",
@@ -382,6 +386,114 @@ async def abrir_vaga(
     ctx.registrar(
         kind="write",
         tool="abrir_vaga",
+        input=data.model_dump(),
+        output=saida,
+        reason_code="allowed",
+    )
+    return saida
+
+
+# -- 5. marcar consulta -------------------------------------------------------
+
+
+class MarcarConsultaInput(BaseModel):
+    """Domínio fechado nos dois ids (regra 2), pelo mesmo motivo do profissional.
+
+    O paciente é escolhido de uma lista, nunca digitado: se o campo aceitasse
+    nome livre, o modelo poderia marcar consulta para alguém que não existe no
+    cadastro — e a linha entraria na agenda com um titular inventado, que é
+    precisamente o tipo de escrita que esta demo existe para impedir.
+    """
+
+    paciente_id: Literal["pac_ana", "pac_joao", "pac_marta"] = Field(
+        description="Paciente do cadastro da clínica."
+    )
+    profissional_id: Literal["prof_bruno", "prof_helena"]
+    inicio: str = Field(description="Início da consulta, ISO 8601 com timezone.")
+    duracao_min: Literal[30, 45, 60] = Field(
+        description="Domínio fechado: 30, 45 ou 60."
+    )
+
+
+@tool(
+    scope="write",
+    idempotent=False,
+    requires_confirmation=True,
+    rate_limit=5,
+    pii_level="medium",
+    description=(
+        "Marca uma consulta para um paciente do cadastro com um profissional. "
+        "Use esta quando a pessoa disser PARA QUEM é a consulta; use abrir_vaga "
+        "quando ela só quiser deixar um horário livre na agenda."
+    ),
+    input_model=MarcarConsultaInput,
+    confirm_fields=("paciente_id", "profissional_id", "inicio", "duracao_min"),
+)
+async def marcar_consulta(
+    ctx: AgentContext, data: MarcarConsultaInput
+) -> dict[str, Any] | ToolError:
+    """A operação que faltava para a persona fechar.
+
+    A recepção abria vaga e remarcava, mas não conseguia marcar consulta para
+    ninguém — o pedido mais óbvio que se faz a uma recepção. Quem tentava
+    ouvia que o vínculo com o paciente "é feito em outro lugar do fluxo", e a
+    linha entrava na agenda com o paciente em branco.
+
+    Passa pela MESMA política de abrir_vaga: é a mesma ocupação de agenda, e o
+    que muda é só ter titular.
+    """
+    try:
+        inicio = datetime.fromisoformat(data.inicio)
+    except ValueError:
+        return ToolError(
+            code="invalid_datetime",
+            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+        )
+    if inicio.tzinfo is None:
+        inicio = inicio.replace(tzinfo=ctx.at.tzinfo)
+
+    decisao = ctx.policy.pode_abrir_vaga(
+        inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
+    )
+    ctx.registrar(
+        kind="policy_decision",
+        tool="marcar_consulta",
+        input=decisao.audit_payload,
+        output={"allowed": decisao.allowed},
+        reason_code=decisao.reason_code,
+    )
+    if not decisao.allowed:
+        return ToolError(
+            code=decisao.reason_code,
+            user_message="Não posso marcar nesse horário.",
+            retry_hint=decisao.explanation_hint,
+        )
+
+    try:
+        consulta = await ctx.erp.abrir_vaga(
+            data.profissional_id,
+            inicio,
+            data.duracao_min,
+            at=ctx.at,
+            paciente_id=data.paciente_id,
+        )
+    except ErpIndisponivel:
+        return INDISPONIVEL
+    except ErpRecusou as exc:
+        return ToolError(
+            code="erp_rejected",
+            user_message="A agenda recusou essa consulta.",
+            retry_hint=exc.detail,
+        )
+
+    ctx.escritas_realizadas += 1
+    saida = {
+        **_resumo(consulta),
+        "fim": (inicio + timedelta(minutes=data.duracao_min)).isoformat(),
+    }
+    ctx.registrar(
+        kind="write",
+        tool="marcar_consulta",
         input=data.model_dump(),
         output=saida,
         reason_code="allowed",

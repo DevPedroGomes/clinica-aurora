@@ -19,10 +19,12 @@ from src.tools.agenda import (
     AbrirVagaInput,
     CancelarConsultaInput,
     ListarAgendaInput,
+    MarcarConsultaInput,
     RemarcarConsultaInput,
     abrir_vaga,
     cancelar_consulta,
     listar_agenda,
+    marcar_consulta,
     remarcar_consulta,
 )
 from src.tools.registry import REGISTRY, AgentContext, ToolError
@@ -80,12 +82,13 @@ def test_toda_tool_de_escrita_exige_confirmacao():
             ), f"{spec.name} escreve sem exigir confirmação"
 
 
-def test_as_quatro_tools_estao_registradas():
+def test_as_cinco_tools_estao_registradas():
     assert set(REGISTRY) == {
         "listar_agenda",
         "remarcar_consulta",
         "cancelar_consulta",
         "abrir_vaga",
+        "marcar_consulta",
     }
 
 
@@ -517,3 +520,81 @@ async def test_abrir_vaga_sem_fuso_assume_o_da_conversa(ctx: AgentContext):
         ),
     )
     assert out["inicio"].startswith("2026-08-13T10:00")
+
+
+# -- marcar_consulta ----------------------------------------------------------
+
+
+async def test_marcar_consulta_grava_com_o_paciente(ctx: AgentContext, erp: ErpFake):
+    out = await marcar_consulta(
+        ctx,
+        MarcarConsultaInput(
+            paciente_id="pac_joao",
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T15:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert not isinstance(out, ToolError)
+    # O ponto da tool: a linha nasce COM titular. Antes dela, marcar consulta
+    # para alguém só existia como abrir_vaga, e a agenda ficava com o paciente
+    # em branco.
+    assert out["paciente"] == "João Meireles"
+    assert erp.consultas[out["consulta_id"]].paciente_nome == "João Meireles"
+
+
+async def test_marcar_consulta_passa_pela_mesma_politica_de_expediente(
+    ctx: AgentContext,
+):
+    out = await marcar_consulta(
+        ctx,
+        MarcarConsultaInput(
+            paciente_id="pac_ana",
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T21:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "outside_business_hours"
+
+
+async def test_marcar_consulta_nao_aceita_paciente_fora_do_cadastro():
+    # Abuso: o id do paciente é domínio fechado. Nome livre deixaria o modelo
+    # marcar consulta para alguém que não existe.
+    with pytest.raises(ValidationError):
+        MarcarConsultaInput(
+            paciente_id="pac_fantasma",  # type: ignore[arg-type]
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T15:00:00-03:00",
+            duracao_min=30,
+        )
+
+
+async def test_marcar_consulta_com_horario_ilegivel(ctx: AgentContext):
+    out = await marcar_consulta(
+        ctx,
+        MarcarConsultaInput(
+            paciente_id="pac_ana",
+            profissional_id="prof_bruno",
+            inicio="terça que vem",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "invalid_datetime"
+
+
+async def test_marcar_consulta_escala_quando_o_erp_cai(ctx: AgentContext, erp: ErpFake):
+    erp.down = True
+    out = await marcar_consulta(
+        ctx,
+        MarcarConsultaInput(
+            paciente_id="pac_ana",
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T15:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "erp_unavailable"

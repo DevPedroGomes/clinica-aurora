@@ -29,6 +29,7 @@ from .tools.agenda import (
     abrir_vaga,
     cancelar_consulta,
     listar_agenda,
+    marcar_consulta,
     remarcar_consulta,
 )
 from .tools.registry import REGISTRY, AgentContext, ToolError, schema_para_anthropic
@@ -58,6 +59,7 @@ HANDLERS = {
     "remarcar_consulta": remarcar_consulta,
     "cancelar_consulta": cancelar_consulta,
     "abrir_vaga": abrir_vaga,
+    "marcar_consulta": marcar_consulta,
 }
 
 
@@ -244,6 +246,16 @@ class Agente:
             if spec.requires_confirmation and sig not in ctx.confirmacoes:
                 ctx.propostas_do_turno.add(sig)
                 conv.avancar(State.CONFIRMING)
+                # O gate PRECISA aparecer no log de decisão. Sem esta linha a
+                # tela mostrava duas chamadas idênticas de escrita e nada entre
+                # elas — quem lia concluía escrita dupla, quando na verdade a
+                # primeira foi barrada aqui e nunca chegou ao ERP. É a garantia
+                # central da demo (G-17) ficando invisível justamente no painel
+                # construído para prová-la.
+                yield Evento(
+                    "confirmation_required",
+                    {"tool": spec.name, "input": chamada.input},
+                )
                 yield Evento(
                     "state",
                     {"estado": conv.state.value, "motivo": "aguardando confirmação"},
@@ -363,6 +375,12 @@ def _com_contexto(texto: str, ctx: AgentContext) -> str:
         "<contexto_operacional>\n"
         f"agora: {local.strftime('%A, %d/%m/%Y %H:%M')} ({local.tzname()})\n"
         "profissionais: prof_bruno (Dr. Bruno Salles) · prof_helena (Dra. Helena Costa)\n"
+        # O cadastro de pacientes entra aqui pelo mesmo motivo dos profissionais:
+        # `marcar_consulta` recebe um id de domínio fechado, e sem a lista o
+        # modelo não teria como traduzir "marca para a Ana" no id certo.
+        "pacientes: pac_ana (Ana Ribeiro) · pac_joao (João Meireles) · pac_marta (Marta Lins)\n"
+        "  Só existem estes três. Pedido para outra pessoa: diga que ela não está\n"
+        "  no cadastro e que a recepção precisa cadastrá-la antes.\n"
         "idioma da resposta: o MESMO da mensagem abaixo, sempre. Se ela vier em\n"
         "  inglês, responda em inglês; em espanhol, em espanhol; e assim por\n"
         "  diante. Não é o idioma deste bloco nem o das ferramentas.\n"

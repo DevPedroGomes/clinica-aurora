@@ -64,6 +64,15 @@ class AbrirVagaRequest(BaseModel):
     profissional_id: str
     inicio: datetime
     duracao_min: int = Field(description="30, 45 ou 60.")
+    paciente_id: str = Field(
+        default="",
+        description=(
+            "Paciente da consulta. Vazio cria um horário LIVRE (vaga), sem "
+            "titular — é o mesmo endpoint porque, do lado do ERP, reservar o "
+            "bloco de tempo é a mesma operação; o que muda é ter ou não dono."
+        ),
+        examples=["pac_ana"],
+    )
 
 
 class ErroResposta(BaseModel):

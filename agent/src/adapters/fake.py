@@ -67,14 +67,23 @@ class ErpFake:
         return c
 
     async def abrir_vaga(
-        self, profissional_id: str, inicio: datetime, duracao_min: int, at: datetime
+        self,
+        profissional_id: str,
+        inicio: datetime,
+        duracao_min: int,
+        at: datetime,
+        paciente_id: str = "",
     ) -> ConsultaView:
         self._guarda("abrir_vaga", profissional_id)
         self._proximo_id += 1
         cid = f"cons_{self._proximo_id}"
         c = ConsultaView(
             id=cid,
-            paciente_nome="—",
+            paciente_nome={
+                "pac_ana": "Ana Ribeiro",
+                "pac_joao": "João Meireles",
+                "pac_marta": "Marta Lins",
+            }.get(paciente_id, ""),
             profissional_id=profissional_id,
             profissional_nome="Dr. Bruno Salles"
             if profissional_id == "prof_bruno"

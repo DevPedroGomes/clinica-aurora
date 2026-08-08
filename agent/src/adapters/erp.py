@@ -54,7 +54,10 @@ class ConsultaView:
     def de_json(cls, raw: dict[str, Any]) -> "ConsultaView":
         return cls(
             id=raw["id"],
-            paciente_nome=raw.get("paciente_nome") or "—",
+            # `or "—"` aqui apagava a distinção que o ERP acabou de fazer:
+            # string vazia é vaga sem titular, e virava "—" de novo. Só o campo
+            # AUSENTE merece o traço.
+            paciente_nome=raw.get("paciente_nome", "—"),
             profissional_id=raw["profissional_id"],
             profissional_nome=raw.get("profissional_nome") or "—",
             inicio=datetime.fromisoformat(raw["inicio"]),
@@ -73,7 +76,11 @@ class ErpPort(Protocol):
     ) -> ConsultaView: ...
     async def cancelar(self, consulta_id: str, motivo: str) -> ConsultaView: ...
     async def abrir_vaga(
-        self, profissional_id: str, inicio: datetime, duracao_min: int
+        self,
+        profissional_id: str,
+        inicio: datetime,
+        duracao_min: int,
+        paciente_id: str = "",
     ) -> ConsultaView: ...
 
 
@@ -227,7 +234,12 @@ class ErpAdapter:
         return ConsultaView.de_json(raw)
 
     async def abrir_vaga(
-        self, profissional_id: str, inicio: datetime, duracao_min: int, at: datetime
+        self,
+        profissional_id: str,
+        inicio: datetime,
+        duracao_min: int,
+        at: datetime,
+        paciente_id: str = "",
     ) -> ConsultaView:
         raw = await self._request(
             "POST",
@@ -236,6 +248,7 @@ class ErpAdapter:
                 "profissional_id": profissional_id,
                 "inicio": inicio.isoformat(),
                 "duracao_min": duracao_min,
+                "paciente_id": paciente_id,
             },
             at=at,
         )

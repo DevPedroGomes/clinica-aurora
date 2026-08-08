@@ -7,6 +7,8 @@ escritas por conversa, mesmo que o prompt seja manipulado.
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +18,10 @@ from pydantic import BaseModel
 
 from ..adapters.erp import ErpAdapter
 from ..policy.engine import PolicyEngine
+
+# Logger dedicado: o audit sai em JSON por linha, separado do access log do
+# uvicorn, para poder ser coletado sem grep de texto livre.
+audit_log = logging.getLogger("aurora.audit")
 
 Scope = Literal["read", "write"]
 PiiLevel = Literal["none", "low", "medium", "high"]
@@ -77,15 +83,40 @@ class AgentContext:
         output: dict[str, Any],
         reason_code: str | None,
     ) -> None:
-        self.audit.append(
-            AuditEntry(
-                kind=kind,
-                tool=tool,
-                input=input,
-                output=output,
-                reason_code=reason_code,
-                rules_version=self.policy.version,
-                at=self.at,
+        entrada = AuditEntry(
+            kind=kind,
+            tool=tool,
+            input=input,
+            output=output,
+            reason_code=reason_code,
+            rules_version=self.policy.version,
+            at=self.at,
+        )
+        self.audit.append(entrada)
+        # A lista acima morre com a sessão — ela alimenta a tela e nada mais.
+        # O README promete que "a versão da regra vai em cada linha do audit
+        # log", e essa promessa exigia uma linha que sobrevivesse à conversa:
+        # sem isto não havia como provar, depois do fato, sob qual versão da
+        # política uma decisão foi tomada, que é a tese da demo inteira.
+        #
+        # Vai o payload completo, inclusive nome de paciente: um audit log que
+        # esconde o titular do dado não serve para auditar nada. O que protege
+        # aqui é o escopo — clínica fictícia, tenant isolado por sessão.
+        audit_log.info(
+            json.dumps(
+                {
+                    "conversation_id": self.conversation_id,
+                    "tenant_id": self.tenant_id,
+                    "kind": kind,
+                    "tool": tool,
+                    "reason_code": reason_code,
+                    "rules_version": entrada.rules_version,
+                    "at": entrada.at.isoformat(),
+                    "input": input,
+                    "output": output,
+                },
+                ensure_ascii=False,
+                default=str,
             )
         )
 

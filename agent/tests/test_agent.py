@@ -164,6 +164,14 @@ async def test_escrita_sem_confirmacao_nao_executa(ctx: AgentContext, erp: ErpFa
     assert not any(e.tipo == "write" for e in eventos)
     assert [c for c in erp.chamadas if c[0] == "remarcar"] == []
 
+    # E o gate tem que APARECER. Sem este evento a tela mostrava a mesma
+    # escrita duas vezes — a barrada e, depois da confirmação, a executada —
+    # sem nada explicando a diferença, e quem lia o log concluía escrita dupla.
+    # A garantia central da demo ficava invisível no painel que existe para
+    # prová-la.
+    gate = [e for e in eventos if e.tipo == "confirmation_required"]
+    assert [e.dado["tool"] for e in gate] == ["remarcar_consulta"]
+
 
 async def test_escrita_confirmada_executa(ctx: AgentContext, erp: ErpFake):
     entrada = {"consulta_id": "cons_1", "novo_inicio": AMANHA_16H}
@@ -513,9 +521,14 @@ async def test_toda_tool_vai_com_schema_de_dominio_fechado(ctx: AgentContext):
         "remarcar_consulta",
         "cancelar_consulta",
         "abrir_vaga",
+        "marcar_consulta",
     }
     duracao = tools["abrir_vaga"]["input_schema"]["properties"]["duracao_min"]
     assert duracao.get("enum") == [30, 45, 60]
+    # O paciente é escolhido de uma lista, nunca digitado: nome livre deixaria
+    # o modelo marcar consulta para alguém que não existe no cadastro.
+    paciente = tools["marcar_consulta"]["input_schema"]["properties"]["paciente_id"]
+    assert paciente.get("enum") == ["pac_ana", "pac_joao", "pac_marta"]
 
 
 async def test_contexto_do_turno_traz_o_relogio_sem_sujar_o_prefixo(ctx: AgentContext):

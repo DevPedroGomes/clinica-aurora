@@ -23,7 +23,7 @@ O momento 4 é o diferencial. Todo mundo demonstra o caminho feliz.
 navegador ──▶ agente (FastAPI)  ──HTTP──▶ clinica-aurora-erp (FastAPI)
                   │                          OpenAPI público em /docs
                   ├── policy/   as 5 regras que o LLM não decide
-                  ├── tools/    4 operações, domínio fechado
+                  ├── tools/    5 operações, domínio fechado
                   └── adapters/ timeout 5s · retry só em leitura · circuit breaker
 ```
 
@@ -44,7 +44,13 @@ make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
 - `policy/` exige **100% de cobertura** — é pouco código e é o que protege juridicamente.
 - Nenhuma tool inventa resultado. Se o ERP não gravou, a tool devolve `ToolError`.
 - Toda escrita passa por confirmação (`G-17`), e isso é enforcement no registry, não instrução de prompt.
-- `rules.yaml` é versionado e a versão vai em cada linha do audit log.
+  O gate aparece no log de decisão como `gate · held`: a chamada barrada é visível, e não se confunde
+  com a que executou depois.
+- `rules.yaml` é versionado e a versão vai em cada linha do audit log — que sai em JSON por linha no
+  logger `aurora.audit`, no stdout do container. A lista em memória alimenta a tela; o log é o que
+  sobrevive à conversa e permite provar, depois, sob qual versão da regra a decisão foi tomada.
+- A agenda semeada respeita o expediente: nasce no próximo dia útil inteiro, nunca "amanhã" —
+  `tests/test_seed.py` varre um ano de aberturas para garantir isso.
 
 ## Limites da demo
 
