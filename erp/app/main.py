@@ -79,7 +79,7 @@ app = FastAPI(
     title="Clínica Aurora ERP",
     version="1.0.0",
     description=(
-        "Scheduling system of Clínica Aurora — a **fictional** clinic.\n\n"
+        "Scheduling system of Clínica Aurora, a **fictional** clinic.\n\n"
         "Published alongside the agent demo so anyone can see the other side of "
         "the integration: the agent talks to this API over HTTP, exactly as it "
         "would talk to a real client's ERP.\n\n"
@@ -123,15 +123,15 @@ TenantDep = Annotated[Tenant, Depends(get_tenant)]
 def _detalhar(c: Consulta) -> ConsultaDetalhada:
     pac = next((p for p in PACIENTES if p.id == c.paciente_id), None)
     prof = next((p for p in PROFISSIONAIS if p.id == c.profissional_id), None)
-    # Sem paciente devolve string VAZIA, e não "—". São coisas diferentes: vazio
-    # é uma vaga livre, que não tem titular por definição; "—" é um id que
+    # Sem paciente devolve string VAZIA, e não "-". São coisas diferentes: vazio
+    # é uma vaga livre, que não tem titular por definição; "-" é um id que
     # aponta para um cadastro que não existe, e isso é defeito de dado. Colapsar
     # os dois fazia a vaga aberta aparecer no painel como uma consulta cujo
     # nome do paciente sumiu.
     return ConsultaDetalhada(
         **c.model_dump(),
-        paciente_nome=(pac.nome if pac else "—") if c.paciente_id else "",
-        profissional_nome=prof.nome if prof else "—",
+        paciente_nome=(pac.nome if pac else "-") if c.paciente_id else "",
+        profissional_nome=prof.nome if prof else "-",
     )
 
 

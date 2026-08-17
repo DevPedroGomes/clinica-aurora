@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clínica Aurora — an agent that writes to a real schedule</title>
+<title>Clínica Aurora: an agent that writes to a real schedule</title>
 <meta name="description" content="Live demo: an AI agent that writes to a real schedule and refuses when the business rule says no. The ERP it writes to is published alongside it.">
 <meta name="author" content="Pedro Gomes">
 
@@ -13,14 +13,14 @@
 <meta property="og:url" content="https://aurora.pgdev.com.br/">
 <meta property="og:site_name" content="Gomio">
 <meta property="og:locale" content="en_US">
-<meta property="og:title" content="An agent that writes to the schedule — and refuses when the rule says no">
+<meta property="og:title" content="An agent that writes to the schedule, and refuses when the rule says no">
 <meta property="og:description" content="Open demo, no signup: talk to the agent and watch the row change in the ERP live. The ERP ships with it, OpenAPI and all, so you can inspect the other side of the integration.">
 <meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Clínica Aurora — live demo of an agent that writes to a real schedule.">
+<meta property="og:image:alt" content="Clínica Aurora: live demo of an agent that writes to a real schedule.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="An agent that writes to the schedule — and refuses when the rule says no">
+<meta name="twitter:title" content="An agent that writes to the schedule, and refuses when the rule says no">
 <meta name="twitter:description" content="Live demo: talk to the agent and watch the row change in the ERP.">
 <meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
 
@@ -135,7 +135,7 @@
     <span class="por">a demo by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a></span>
   </div>
   <p class="aviso">
-    A <strong>fictional</strong> clinic. Its ERP is published alongside — the write really happens, over HTTP, against
+    A <strong>fictional</strong> clinic. Its ERP is published alongside: the write really happens, over HTTP, against
     <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">a separate service you can inspect</a>.
   </p>
   <div class="acoes">
@@ -148,7 +148,7 @@
   <section class="col">
     <div class="cabeca"><span>Conversation · clinic front desk</span><span id="estado">start</span></div>
     <div class="chat" id="chat">
-      <div class="bolha ela">Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Write in any language — I'll answer in yours. What do you need?</div>
+      <div class="bolha ela">Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Write in any language, I'll answer in yours. What do you need?</div>
     </div>
     <div class="sugestoes" id="sugestoes"></div>
     <form class="barra" id="form">
@@ -360,7 +360,7 @@ function renderizar(tipo, d) {
       // (a barrada e a executada) sem nada explicando a diferença, e o gate —
       // que é a garantia central desta demo — não aparecia em lugar nenhum.
       evento("gate · held",
-        `<b>${esc(d.tool)}</b> not executed — waiting for the person to confirm`,
+        `<b>${esc(d.tool)}</b> not executed: waiting for the person to confirm`,
         "negado");
       break;
     case "policy":
