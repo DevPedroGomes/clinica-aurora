@@ -37,7 +37,7 @@ from .tools.registry import REGISTRY, AgentContext, ToolError, schema_para_anthr
 # Modelo de conversa da arquitetura de referência (docs/03-arquitetura.md).
 MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
 MAX_TOKENS = 4096
-# `low` mantém a demo responsiva. O trabalho aqui é estreito — quatro tools e
+# `low` mantém a demo responsiva. O trabalho aqui é estreito — cinco tools e
 # uma agenda pequena — e não é o tipo de tarefa que se beneficia de esforço alto.
 EFFORT = os.getenv("AGENT_EFFORT", "low")
 BAHIA = ZoneInfo("America/Bahia")

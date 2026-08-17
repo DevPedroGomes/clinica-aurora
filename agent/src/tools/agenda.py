@@ -1,4 +1,4 @@
-"""As quatro tools da Clínica Aurora.
+"""As cinco tools da Clínica Aurora.
 
 Uma por operação de negócio. Nenhuma aceita SQL, URL, caminho, comando ou nome de
 recurso arbitrário (regra 2) — `duracao_min` é domínio fechado e `consulta_id` é

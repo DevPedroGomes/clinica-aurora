@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class ConsultaStatus(str, Enum):
@@ -53,7 +53,13 @@ class ConsultaDetalhada(Consulta):
 
 
 class RemarcarRequest(BaseModel):
-    novo_inicio: datetime = Field(description="Início novo, ISO 8601 com timezone.")
+    # AwareDatetime, não datetime: sem offset o Pydantic aceitava um naive, que
+    # depois era comparado com a agenda semeada (aware) na checagem de conflito
+    # e estourava TypeError — 500 cru na cara de quem está testando pelo /docs.
+    # Com AwareDatetime a recusa vira um 422 explicando o que faltou.
+    novo_inicio: AwareDatetime = Field(
+        description="Início novo, ISO 8601 com timezone."
+    )
 
 
 class CancelarRequest(BaseModel):
@@ -62,7 +68,9 @@ class CancelarRequest(BaseModel):
 
 class AbrirVagaRequest(BaseModel):
     profissional_id: str
-    inicio: datetime
+    # Mesmo motivo de RemarcarRequest.novo_inicio: naive aqui virava 500 na
+    # comparação com a agenda semeada.
+    inicio: AwareDatetime
     duracao_min: int = Field(description="30, 45 ou 60.")
     paciente_id: str = Field(
         default="",
