@@ -289,7 +289,14 @@ async def reset(
 # uptime bate de HEAD primeiro, e `@app.get` sozinho devolvia 405 para eles.
 @app.api_route("/", methods=["GET", "HEAD"])
 def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    # Sem Cache-Control o navegador escolhe o prazo por heuristica e continua
+    # servindo a versao anterior da demo depois de um deploy, sem revalidar.
+    # `no-cache` nao proibe guardar: obriga a perguntar antes de usar, e a
+    # resposta vira 304 quando nada mudou.
+    return FileResponse(
+        STATIC / "index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
