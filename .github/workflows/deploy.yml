@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Build & push image (VPS auto-pulls)
 
 on:
   push:
@@ -61,28 +61,9 @@ jobs:
           docker compose build
           docker compose push
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: SSH into VPS and deploy
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -eu
-            cd /opt/showcase/clinica-aurora
-            if [ -f .deploy-freeze ]; then
-              echo "Freeze ativo, abortando deploy"
-              exit 1
-            fi
-            git fetch origin
-            git reset --hard origin/main
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
-            docker compose ps
+# Sem job de deploy por SSH de proposito: a VPS puxa sozinha pelo timer
+# `ghcr-autopull@opt-showcase-clinica-aurora.timer`, que roda a cada 3 minutos,
+# sincroniza o repo e recria o container quando o digest da imagem muda.
+# Os dois rodando juntos disputavam o mesmo container e o docker respondia
+# "removal already in progress", deixando o CI vermelho num deploy que deu certo.
+# Este e o mesmo padrao build-only dos outros nove projetos migrados.
