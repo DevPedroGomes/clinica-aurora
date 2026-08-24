@@ -38,6 +38,20 @@ jobs:
         working-directory: agent
         run: python -m pytest tests/ -q --cov=src/tools --cov-report=term-missing --cov-fail-under=90
 
+      # A barra de provas da demo le static/proof.json. Gerar aqui, e nao
+      # commitar, e o que impede o numero de envelhecer: o case study dizia
+      # "124 tests" enquanto a suite ja rodava 134.
+      - name: Gerar os numeros da barra de provas
+        working-directory: agent
+        run: python scripts/gerar_provas.py
+
+      - name: Guardar proof.json para o job de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof
+          path: agent/static/proof.json
+          retention-days: 1
+
   build:
     needs: test
     runs-on: ubuntu-latest
@@ -56,6 +70,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Placeholder de .env (o env_file do compose e lido no build)
         run: touch .env
+      # Vem do job `test`, que rodou a suite para produzir o numero. Sem este
+      # download a imagem sobe sem proof.json e a barra de provas some da tela
+      # — que e o comportamento certo, mas nao o desejado.
+      - name: Baixar proof.json gerado no job de teste
+        uses: actions/download-artifact@v4
+        with:
+          name: proof
+          path: agent/static/
       - name: Build + push (dirigido pelo compose)
         run: |
           docker compose build

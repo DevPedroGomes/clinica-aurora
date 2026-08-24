@@ -91,6 +91,11 @@
   /* Versão da política ao lado do código da regra: é o que prova, meses
      depois, sob qual regra a decisão foi tomada. */
   .versao{font-size:10px;color:var(--txt3);margin-left:.35rem;white-space:nowrap}
+  .provas{display:flex;flex-wrap:wrap;gap:.3rem .45rem;font-family:var(--mono);font-size:10.5px;
+    margin:.55rem 0 0}
+  .provas span{border:1px solid var(--linha);border-radius:5px;padding:.15rem .45rem;color:var(--txt2);
+    background:rgba(255,255,255,.03)}
+  .provas b{color:var(--txt);font-weight:500}
   .barra{display:flex;gap:.5rem;padding:.9rem 1.1rem;border-top:1px solid var(--linha)}
   .barra input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--linha);color:var(--txt);
     border-radius:10px;padding:.6rem .8rem;font:inherit;font-size:14px}
@@ -148,6 +153,10 @@
     A <strong>fictional</strong> clinic. Its ERP is published alongside: the write really happens, over HTTP, against
     <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">a separate service you can inspect</a>.
   </p>
+  <!-- Barra de provas. Vazia por padrao e preenchida por /api/meta: os numeros
+       sao GERADOS no CI, nunca digitados. Se o build nao rodou o gerador, ela
+       continua invisivel — melhor nao afirmar do que afirmar errado. -->
+  <div class="provas" id="provas" hidden></div>
   <div class="acoes">
     <button id="chaos" class="perigo" aria-pressed="false">Break the system</button>
     <button id="reset">Restart</button>
@@ -280,6 +289,24 @@ function hora(iso) {
       weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
+}
+
+async function carregarProvas() {
+  try {
+    const d = await (await fetch("/api/meta")).json();
+    if (!d || !d.testes) return;  // build sem o gerador: a barra fica escondida
+    const chips = [
+      [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
+      [`<b>${d.cobertura_total}%</b> coverage`, "Whole agent"],
+      [`policy <b>${d.cobertura_policy}%</b>`, "Gated at 100% in CI: it is what holds up legally"],
+      [`<b>${esc(d.modelo)}</b>`, "Model answering right now"],
+      [`rules <b>${esc(d.rules_version)}</b>`, "Version of policy/rules.yaml stamped on every decision"],
+      [`rates <b>${esc(d.rates_version)}</b>`, "Version of pricing.yaml stamped on every cost line"],
+    ];
+    const el = $("#provas");
+    el.innerHTML = chips.map(([html, t]) => `<span title="${esc(t)}">${html}</span>`).join("");
+    el.hidden = false;
+  } catch { /* a barra e enfeite: nunca derruba a pagina */ }
 }
 
 async function carregarAgenda() {
@@ -479,6 +506,7 @@ for (const s of SUGESTOES) {
 }
 
 carregarAgenda();
+carregarProvas();
 </script>
 </body>
 </html>

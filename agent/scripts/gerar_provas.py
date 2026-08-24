@@ -40,11 +40,25 @@ def _rodar(*args: str) -> str:
 
 
 def contar_testes() -> int:
+    """Conta o que `--collect-only -q` reporta, nos dois formatos que ele usa.
+
+    Versões diferentes do pytest imprimem coisas diferentes com as MESMAS
+    flags: umas somam tudo numa linha final ("151 tests collected"), outras
+    listam por arquivo ("tests/test_api.py: 12"). Ler só um dos dois faz este
+    script morrer num upgrade de dependência, que é o momento em que ninguém
+    está olhando para ele.
+    """
     saida = _rodar("pytest", "tests/", "-q", "--collect-only")
+
+    por_arquivo = re.findall(r"^\S+\.py: (\d+)$", saida, re.MULTILINE)
+    if por_arquivo:
+        return sum(int(n) for n in por_arquivo)
+
     m = re.search(r"(\d+) tests? collected", saida)
-    if not m:
-        raise SystemExit(f"não achei a contagem de testes em:\n{saida[-2000:]}")
-    return int(m.group(1))
+    if m:
+        return int(m.group(1))
+
+    raise SystemExit(f"não achei a contagem de testes em:\n{saida[-2000:]}")
 
 
 def cobertura(alvo: str) -> float:

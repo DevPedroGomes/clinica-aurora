@@ -171,6 +171,24 @@ def test_health_nao_conta_quanto_sobrou_do_teto(api):
     assert set(corpo) == {"status", "model"}
 
 
+def test_meta_sem_proof_json_devolve_vazio_em_vez_de_inventar(api, monkeypatch):
+    """Sem o arquivo gerado no CI, a barra some — nao mostra numero chutado.
+
+    O case study do portfolio dizia "124 tests" enquanto a suite rodava 134.
+    Ninguem mentiu: o numero foi digitado uma vez e a suite continuou crescendo.
+    """
+    monkeypatch.setattr(api, "_PROVAS", None)
+    assert cliente(api).get("/api/meta").json() == {}
+
+
+def test_meta_nao_vaza_o_saldo_do_teto(api, monkeypatch):
+    """Mesmo motivo do /health: saldo e dica de quanto falta para derrubar."""
+    monkeypatch.setattr(api, "_PROVAS", {"testes": 151, "cobertura_total": 94.0})
+    corpo = cliente(api).get("/api/meta").json()
+    assert corpo["testes"] == 151
+    assert not any("teto" in k or "restante" in k or "usado" in k for k in corpo)
+
+
 def test_schema_da_api_interna_nao_fica_publico(api):
     """Desligar /docs não desliga /openapi.json — e ele entrega /api/chaos,
     /api/reset e todos os parâmetros de bandeja."""
