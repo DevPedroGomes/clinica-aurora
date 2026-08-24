@@ -1,0 +1,35 @@
+# Tabela de preços — versionada pelo mesmo motivo que `policy/rules.yaml`.
+#
+# Um custo sem procedência não serve para nada: meses depois, ninguém consegue
+# dizer sob qual tarifa aquele número foi calculado. A versão abaixo vai junto
+# em cada linha de custo do audit log, então "US$ 0,004 naquela conversa" é uma
+# afirmação verificável e não um número plausível.
+#
+# Preços em USD por milhão de tokens.
+version: "2026.08.1"
+fonte: "anthropic.com/pricing, conferido em 2026-08-24"
+
+modelos:
+  claude-sonnet-5:
+    input: 3.00
+    output: 15.00
+    # Preço de introdução do Sonnet 5, que termina no fim de agosto de 2026.
+    # Está aqui em vez de embutido no número acima porque o dia em que ele cair
+    # é o dia em que todo custo medido nesta demo sobe 50% sem nada mudar no
+    # código — e quem ler o audit log depois precisa conseguir ver isso.
+    promocao:
+      ate: "2026-08-31"
+      input: 2.00
+      output: 10.00
+  claude-haiku-4-5:
+    input: 1.00
+    output: 5.00
+  claude-opus-5:
+    input: 5.00
+    output: 25.00
+
+# Multiplicadores sobre o preço de input do modelo.
+cache:
+  leitura: 0.1
+  # TTL de 5 minutos, que é o padrão. O de 1 hora custa 2.0 e não é usado aqui.
+  escrita: 1.25

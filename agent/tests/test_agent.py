@@ -42,6 +42,21 @@ def tool_use(nome: str, entrada: dict, id_: str = "toolu_1") -> SimpleNamespace:
     return SimpleNamespace(type="tool_use", id=id_, name=nome, input=entrada)
 
 
+def uso(entrada: int = 40, saida: int = 20, leu: int = 3466, escreveu: int = 0):
+    """`usage` plausível: prefixo inteiro vindo do cache, é o caso normal.
+
+    O default tem `cache_read` preenchido de propósito. O turno que NÃO lê cache
+    é a anomalia nesta demo, e um teste cujo default fosse zero deixaria passar
+    de novo o bug que esta fixture existe para vigiar.
+    """
+    return SimpleNamespace(
+        input_tokens=entrada,
+        output_tokens=saida,
+        cache_read_input_tokens=leu,
+        cache_creation_input_tokens=escreveu,
+    )
+
+
 class FakeLLM:
     """Devolve respostas roteirizadas, uma por chamada."""
 
@@ -53,10 +68,12 @@ class FakeLLM:
     async def _create(self, **kwargs):
         self.chamadas.append(kwargs)
         if not self._respostas:
-            return SimpleNamespace(content=[texto("(fim)")], stop_reason="end_turn")
+            return SimpleNamespace(
+                content=[texto("(fim)")], stop_reason="end_turn", usage=uso()
+            )
         blocos = self._respostas.pop(0)
         parou = "tool_use" if any(b.type == "tool_use" for b in blocos) else "end_turn"
-        return SimpleNamespace(content=blocos, stop_reason=parou)
+        return SimpleNamespace(content=blocos, stop_reason=parou, usage=uso())
 
 
 class RecusaLLM:
@@ -64,7 +81,9 @@ class RecusaLLM:
         self.messages = SimpleNamespace(create=self._create)
 
     async def _create(self, **kwargs):
-        return SimpleNamespace(content=[], stop_reason="refusal", stop_details=None)
+        return SimpleNamespace(
+            content=[], stop_reason="refusal", stop_details=None, usage=uso()
+        )
 
 
 class QuebraLLM:
@@ -572,6 +591,60 @@ async def test_contexto_do_turno_traz_o_relogio_sem_sujar_o_prefixo(ctx: AgentCo
     assert "remarca pra amanhã" in primeira_fala
     # e o prefixo cacheado continua sem nada volátil
     assert "10/08/2026" not in enviado["system"][0]["text"]
+
+
+async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Regressão: o gate barrava a escrita E matava o cache junto.
+
+    O prefixo é renderizado tools → system → messages, e o breakpoint de cache
+    está no system, atrás das tools. Enquanto o gate segurava a escrita, o loop
+    mandava `tools=[]` — 1.964 tokens somem da FRENTE do prefixo, e tudo atrás
+    deles é invalidado, inclusive o bloco que carrega o breakpoint. Como o gate
+    dispara em toda escrita, o cache morria exatamente nas conversas que a demo
+    existe para mostrar.
+
+    A trava correta é `tool_choice: none`: mesma garantia (o modelo não CONSEGUE
+    emitir tool_use) sem tirar um byte do prefixo.
+    """
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],  # dispara o gate
+        [texto("Move Ana to 4pm. Shall I go ahead?")],  # turno preso pelo gate
+    )
+
+    await coletar(Agente(llm), Conversation(), "remarca a da Ana pras 16h", ctx)
+
+    assert len(llm.chamadas) == 2
+    normal, sob_gate = llm.chamadas
+
+    # A lista de ferramentas é IDÊNTICA nos dois: é isso que preserva o prefixo.
+    assert sob_gate["tools"] == normal["tools"]
+    assert len(sob_gate["tools"]) == 5
+
+    # E a escrita continua barrada, agora pelo parâmetro em vez da ausência.
+    assert normal["tool_choice"] == {"type": "auto"}
+    assert sob_gate["tool_choice"] == {"type": "none"}
+    assert erp.consultas["cons_1"].inicio.hour == 9  # nada gravou
+
+
+async def test_custo_do_turno_vai_para_o_log_e_para_o_audit(ctx: AgentContext):
+    """Sem isto, "teto de gasto" é afirmação que ninguém pode conferir."""
+    llm = FakeLLM([texto("oi")])
+    eventos = await coletar(Agente(llm), Conversation(), "oi", ctx)
+
+    usos = [e for e in eventos if e.tipo == "usage"]
+    assert len(usos) == 1
+    d = usos[0].dado
+    assert d["usd_turno"] > 0
+    assert d["cache_hit"] is True
+    assert d["rates_version"]
+    assert d["latencia_ms"] >= 0
+
+    assert ctx.custo_micros > 0
+    assert ctx.chamadas == 1
+    # O custo entra no audit com nome próprio, como a política entra.
+    assert [a.kind for a in ctx.audit].count("llm_call") == 1
 
 
 async def test_confirmar_cancelamento_vale_mesmo_com_motivo_anexado_depois(

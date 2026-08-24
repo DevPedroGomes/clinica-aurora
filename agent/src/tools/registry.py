@@ -61,6 +61,15 @@ class AgentContext:
     erp: ErpAdapter
     at: datetime
     escritas_realizadas: int = 0
+    custo_micros: int = 0
+    """Quanto esta conversa já custou, em micro-dólares (ver `pricing.py`).
+
+    Mora no contexto, e não numa global, porque é por conversa: o painel mostra
+    o acumulado desta sessão, e o `api.py` lê a diferença antes e depois do
+    turno para reconciliar a reserva do orçamento com o gasto que aconteceu.
+    """
+    chamadas: int = 0
+    """Iterações do loop que chegaram a virar chamada paga."""
     confirmacoes: set[str] = field(default_factory=set)
     """Assinaturas de escrita já confirmadas pelo usuário nesta conversa.
 

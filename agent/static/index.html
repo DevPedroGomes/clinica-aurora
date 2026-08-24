@@ -116,6 +116,16 @@
   .ev.negado .tag{background:rgba(251,191,36,.16);color:var(--nao)}
   .ev.erro .tag{background:rgba(248,113,113,.16);color:var(--erro)}
   .ev.permitido .tag{background:rgba(96,165,250,.16);color:var(--azul)}
+  /* A linha de custo e a mais discreta do log de proposito: ela precisa estar
+     em TODA chamada paga, e com o mesmo peso das outras viraria ruido que
+     esconde a decisao de politica, que e o que o visitante veio ver. */
+  .ev.medida{opacity:.72}
+  .ev.medida .tag{background:rgba(255,255,255,.06);color:var(--txt3)}
+  .ev.medida:hover{opacity:1}
+  /* Cache que nao leu e o unico caso em que a linha de custo GRITA: e o sinal
+     de invalidador silencioso, e foi assim que o bug do gate apareceu. */
+  .ev.semcache{opacity:1}
+  .ev.semcache .tag{background:rgba(251,191,36,.16);color:var(--nao)}
   .ev b{color:var(--txt);font-weight:500}
   .vazio{color:var(--txt3);font-size:12.5px;font-family:Inter,sans-serif}
   .rodape{padding:.8rem 1.1rem;border-top:1px solid var(--linha);font-size:11.5px;color:var(--txt3);line-height:1.6}
@@ -167,13 +177,20 @@
         </table>
       </div>
       <div>
-        <div class="cabeca" style="padding:0 0 .6rem;border:0">Decision log</div>
+        <div class="cabeca" style="padding:0 0 .6rem;border:0;display:flex;justify-content:space-between;gap:.5rem">
+          <span>Decision log</span>
+          <!-- O que esta conversa custou de verdade, somando toda chamada paga.
+               Fica ao lado do log porque e a mesma promessa: o que a demo
+               afirma, ela mostra acontecendo. -->
+          <span title="What this conversation has cost so far, at the rates in pricing.yaml">this conversation: <b id="gasto" style="color:rgba(255,255,255,.75)">$0.00</b></span>
+        </div>
         <div class="log" id="log"><p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p></div>
       </div>
     </div>
     <div class="rodape">
       <strong style="color:rgba(255,255,255,.75)">Demo limits</strong> · anonymous session with its own isolated schedule · max 3 writes per conversation ·
-      daily turn cap and kill switch · nothing persists after the session.
+      daily spend ceiling in dollars, reserved before each paid call and reconciled against real token usage after · kill switch ·
+      nothing persists after the session.
       <div class="assinatura">
         Built by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a> ·
         <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
@@ -243,6 +260,14 @@ function evento(tag, html, classe = "") {
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// Custo de turno vive na casa dos milesimos de dolar, entao duas casas mostram
+// "$0.00" para tudo e a linha nao prova nada. Quatro casas ate um centavo, duas
+// dai pra cima: o numero fica legivel nas duas escalas sem notacao cientifica.
+function usd(v) {
+  const n = Number(v) || 0;
+  return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
 }
 
 function hora(iso) {
@@ -376,6 +401,25 @@ function renderizar(tipo, d) {
           + (d.rules_version ? ` <span class="versao">policy ${esc(d.rules_version)}</span>` : ""),
         d.allowed ? "permitido" : "negado");
       break;
+    case "usage": {
+      // Custo e latencia de cada chamada paga, com a VERSAO DA TABELA do lado,
+      // pelo mesmo motivo que a linha de policy carrega a versao da regra: um
+      // numero de dinheiro sem a tarifa que o produziu nao da para auditar.
+      //
+      // `cache read` fica visivel porque e o numero que denuncia invalidador
+      // silencioso. Um prefixo que deveria cachear e nunca le esta mudando de
+      // bytes sem ninguem perceber — foi exatamente assim que o gate de
+      // confirmacao apareceu matando o proprio cache.
+      const cache = d.cache_hit
+        ? `cache read ${d.cache_read_tokens.toLocaleString("en-US")}`
+        : "no cache read";
+      evento("llm",
+        `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms · <b>${usd(d.usd_turno)}</b> · ${cache}`
+          + (d.rates_version ? ` <span class="versao">rates ${esc(d.rates_version)}</span>` : ""),
+        d.cache_hit ? "medida" : "medida semcache");
+      $("#gasto").textContent = usd(d.usd_conversa);
+      break;
+    }
     case "write":
       evento("written", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
       break;
@@ -391,6 +435,11 @@ function renderizar(tipo, d) {
       break;
     case "error":
       bolha(d.mensagem, "sistema");
+      break;
+    case "done":
+      // Um turno pode terminar sem nenhuma chamada paga — conversa ja escalada,
+      // por exemplo. Sem isto o total ficaria parado no valor do turno anterior.
+      if (d.usd_conversa !== undefined) $("#gasto").textContent = usd(d.usd_conversa);
       break;
   }
 }
@@ -415,6 +464,9 @@ $("#reset").addEventListener("click", async () => {
   chat.innerHTML = "";
   log.innerHTML = '<p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p>';
   ultimoEstadoAgenda = new Map();
+  // O total e POR CONVERSA, e o reset comeca uma conversa nova: deixar o valor
+  // antigo na tela faria o proximo turno parecer mais caro do que foi.
+  $("#gasto").textContent = usd(0);
   bolha("Schedule and conversation restarted.", "sistema");
   carregarAgenda();
 });

@@ -159,8 +159,11 @@ async def chat(
         raise HTTPException(409, "Still answering the previous one.")
     await sessao.lock.acquire()
 
+    # Reserva antes da chamada paga, porque o custo real só existe depois dela.
+    # A diferença volta na reconciliação, no `finally` abaixo.
+    reserva = budget.RESERVA_POR_TURNO
     try:
-        budget.consumir()
+        budget.reservar(reserva)
     except budget.Bloqueado as exc:
         sessao.lock.release()
         raise HTTPException(
@@ -172,22 +175,33 @@ async def chat(
         ) from exc
 
     ctx = _contexto(sessao)
+    custo_antes = ctx.custo_micros
 
     async def stream():
-        houve_resposta = False
         try:
             async for evento in agente.turno(sessao.conversa, mensagem, ctx):
-                houve_resposta = True
                 yield _sse(evento.tipo, evento.dado)
         except Exception:  # noqa: BLE001
             yield _sse("error", {"mensagem": "Something broke on my side."})
         finally:
             # Roda também quando o cliente desconecta no meio (GeneratorExit),
             # senão a sessão ficaria travada até o TTL.
-            if not houve_resposta:
-                budget.devolver()
+            #
+            # Reconciliar substitui o antigo "devolveu se não houve resposta".
+            # Aquele era grosso nos dois sentidos: um turno que fez três
+            # chamadas pagas e morreu no meio era cobrado como um só, e um turno
+            # que não chegou a chamar nada devolvia exatamente uma unidade,
+            # sempre a mesma, porque a unidade era turno. Agora o dia é debitado
+            # pelo que o `usage` disse que aconteceu, inclusive quando é zero.
+            budget.reconciliar(reserva, ctx.custo_micros - custo_antes)
             sessao.lock.release()
-            yield _sse("done", {"estado": sessao.conversa.state.value})
+            yield _sse(
+                "done",
+                {
+                    "estado": sessao.conversa.state.value,
+                    "usd_conversa": round(ctx.custo_micros / 1_000_000, 6),
+                },
+            )
 
     resposta = StreamingResponse(stream(), media_type="text/event-stream")
     resposta.set_cookie(

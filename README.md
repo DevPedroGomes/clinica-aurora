@@ -49,6 +49,20 @@ make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
 - `rules.yaml` é versionado e a versão vai em cada linha do audit log — que sai em JSON por linha no
   logger `aurora.audit`, no stdout do container. A lista em memória alimenta a tela; o log é o que
   sobrevive à conversa e permite provar, depois, sob qual versão da regra a decisão foi tomada.
+- `pricing.yaml` é versionado pelo mesmo motivo, e a versão vai em cada linha de custo. Um número de
+  dinheiro sem a tarifa que o produziu não dá para auditar: meses depois ninguém consegue dizer sob
+  qual tabela aquele valor foi contado, nem por que a série tem um degrau no dia em que o preço de
+  introdução do Sonnet 5 caiu.
+- O teto do dia é em **dólar**, não em turno, e funciona por reserva e reconciliação: retém uma
+  estimativa antes da chamada paga e ajusta pela diferença quando o `usage` volta. Contar turnos
+  media a coisa errada — um turno de seis iterações custa seis vezes um de uma iteração, e o
+  contador não via diferença entre os dois.
+- Toda chamada paga vira uma linha `llm` no log de decisão, com custo, latência e `cache read`.
+  O `cache read` está ali de propósito: é o número que denuncia invalidador silencioso. Foi ele que
+  revelou que o gate de confirmação estava matando o próprio cache ao mandar `tools=[]` — as tools
+  renderizam ANTES do system no prefixo, então esvaziá-las invalidava tudo atrás, inclusive o bloco
+  que carrega o breakpoint. A trava correta é `tool_choice: none`, que segura a escrita sem tirar um
+  byte do prefixo (`tests/test_agent.py::test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado`).
 - A agenda semeada respeita o expediente: nasce no próximo dia útil inteiro, nunca "amanhã" —
   `tests/test_seed.py` varre um ano de aberturas para garantir isso.
 
@@ -56,4 +70,9 @@ make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
 
 Sessão anônima com tenant isolado, agenda semeada na hora e despejada quando a
 sessão expira. Nada aqui persiste, e nenhum dado de um visitante é visível para
-outro.
+outro. Teto de gasto diário em dólar, reservado antes de cada chamada paga e
+reconciliado contra o `usage` real depois, mais kill switch por env var.
+
+A sessão vive no processo (`_sessoes`), o que prende a demo a **um worker só**.
+É decisão consciente para o escopo dela — nada persiste por definição — e é o
+primeiro ponto a mudar se um dia ela precisar de mais de uma réplica.

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +25,7 @@ from zoneinfo import ZoneInfo
 from anthropic import AsyncAnthropic
 
 from .flows.state_machine import Conversation, State
+from .pricing import custo as calcular_custo
 from .prompts.system import PROMPT_ID, system_blocks
 from .tools.agenda import (
     abrir_vaga,
@@ -112,20 +114,32 @@ class Agente:
         yield Evento("state", {"estado": conv.state.value})
 
         for _ in range(MAX_ITERACOES):
-            # Quando o gate pede confirmação, o turno segue SEM ferramentas: a
-            # única coisa que falta é falar com a pessoa. Deixar as tools na mesa
-            # convida o modelo a tentar a mesma escrita de novo, e ele tenta —
-            # três vezes seguidas, no teste com o modelo real, até concluir
-            # sozinho que "o sistema está recusando". Tirar a ferramenta remove
-            # a tentação sem precisar pedir bom senso ao modelo.
-            ferramentas = [] if ctx.propostas_do_turno else schema_para_anthropic()
+            # Quando o gate pede confirmação, o turno segue sem PODER chamar
+            # ferramenta: a única coisa que falta é falar com a pessoa. Deixar
+            # as tools disponíveis convida o modelo a tentar a mesma escrita de
+            # novo, e ele tenta — três vezes seguidas, no teste com o modelo
+            # real, até concluir sozinho que "o sistema está recusando".
+            #
+            # A trava é `tool_choice: none`, e não uma lista vazia, por causa do
+            # cache. O prefixo é renderizado na ordem tools → system → messages,
+            # e o breakpoint de cache está no system, ou seja, atrás das tools.
+            # Esvaziar a lista tirava 1.964 tokens da FRENTE do prefixo, o que
+            # invalidava tudo que vinha depois — inclusive o system. O gate é o
+            # mecanismo central desta demo e dispara em toda escrita, então o
+            # efeito era o cache morrer justamente nas conversas que importam.
+            # Com `tool_choice` os bytes do prefixo não mudam (medido: 3.466 dos
+            # dois lados) e a garantia é a mesma, porque o modelo fica impedido
+            # de emitir tool_use no nível da amostragem, não por bom senso.
+            escolha = {"type": "none"} if ctx.propostas_do_turno else {"type": "auto"}
+            comecou = time.perf_counter()
             try:
                 resposta = await self._client.messages.create(
                     model=MODEL,
                     max_tokens=MAX_TOKENS,
                     system=system_blocks(),
                     messages=conv.historico,
-                    tools=ferramentas,
+                    tools=schema_para_anthropic(),
+                    tool_choice=escolha,
                     output_config={"effort": EFFORT},
                     metadata={"user_id": f"tenant:{ctx.tenant_id}"},
                 )
@@ -139,6 +153,38 @@ class Agente:
                     {"motivo": "tool_failure_repeated", "detalhe": type(exc).__name__},
                 )
                 return
+
+            # O custo entra no log de decisão pelo mesmo motivo que a regra
+            # entra: sem ele, "teto de gasto" é uma afirmação que ninguém pode
+            # conferir. E `cache_hit` fica visível de propósito — é o número que
+            # denuncia invalidador silencioso, que foi como o bug do gate
+            # apareceu. Um prefixo que deveria cachear e nunca lê está mudando
+            # de bytes sem ninguém perceber.
+            latencia_ms = round((time.perf_counter() - comecou) * 1000)
+            c = calcular_custo(MODEL, resposta.usage)
+            ctx.custo_micros += c.micros
+            ctx.chamadas += 1
+            ctx.registrar(
+                kind="llm_call",
+                tool=MODEL,
+                input={"latencia_ms": latencia_ms, "tool_choice": escolha["type"]},
+                output=c.audit_payload(),
+                reason_code=None,
+            )
+            yield Evento(
+                "usage",
+                {
+                    "modelo": MODEL,
+                    "latencia_ms": latencia_ms,
+                    "usd_turno": round(c.usd, 6),
+                    "usd_conversa": round(ctx.custo_micros / 1_000_000, 6),
+                    "input_tokens": c.input_tokens,
+                    "output_tokens": c.output_tokens,
+                    "cache_read_tokens": c.cache_read_tokens,
+                    "cache_hit": c.cache_hit,
+                    "rates_version": c.rates_version,
+                },
+            )
 
             if resposta.stop_reason == "refusal":
                 # O modelo recusou por segurança. Não insista: escale.

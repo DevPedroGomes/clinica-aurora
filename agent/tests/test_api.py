@@ -19,7 +19,9 @@ ERP = "http://erp:8080"
 @pytest.fixture
 def api(monkeypatch, tmp_path):
     monkeypatch.setenv("BUDGET_PATH", str(tmp_path / "budget.json"))
-    monkeypatch.setenv("DAILY_TURN_CAP", "3")
+    # US$ 0,03 de teto com US$ 0,01 por turno: três turnos cabem no dia.
+    monkeypatch.setenv("DAILY_BUDGET_USD", "0.03")
+    monkeypatch.setenv("TURN_RESERVE_USD", "0.01")
     monkeypatch.setenv("DEMO_KILL_SWITCH", "0")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-teste")
     import src.budget
@@ -29,10 +31,17 @@ def api(monkeypatch, tmp_path):
     mod = importlib.reload(src.api)
 
     class AgenteFalso:
+        # O turno precisa GASTAR, senão não exercita o teto: agora o dia é
+        # debitado pelo custo reconciliado, e um agente que não chama nada não
+        # consome orçamento nenhum — que é o comportamento certo, e tem teste
+        # próprio abaixo.
+        custo_por_turno = 10_000  # US$ 0,01 em micro-dólares
+
         async def turno(self, conv, texto, ctx):
             from src.agent import Evento
 
             ctx.escritas_realizadas += 1
+            ctx.custo_micros += self.custo_por_turno
             yield Evento("message", {"texto": f"ok: {texto}"})
 
     mod.agente = AgenteFalso()
@@ -91,6 +100,35 @@ def test_teto_diario_bloqueia_com_recado_humano(api):
     # Recado humano, não um código: a interface é em inglês, e quem estoura o
     # teto tem de entender que é limite da demo e não defeito do agente.
     assert "tomorrow" in r.json()["detail"]
+
+
+def test_o_dia_e_debitado_pelo_gasto_real_e_nao_pela_reserva(api):
+    """Reserva é estimativa; o que fica no dia é o que o `usage` disse.
+
+    Antes a unidade era turno, então qualquer turno custava exatamente um,
+    fossem seis chamadas pagas ou nenhuma. Um agente barato esgotava o dia no
+    mesmo ritmo de um caro.
+    """
+    import src.budget as budget
+
+    api.agente.custo_por_turno = 1_000  # US$ 0,001, um décimo da reserva
+    c = cliente(api)
+    for _ in range(3):
+        assert c.post("/api/chat", json={"mensagem": "oi"}).status_code == 200
+
+    assert budget.usado() == 3_000
+    # Com a unidade antiga o dia já teria acabado aqui.
+    assert c.post("/api/chat", json={"mensagem": "oi"}).status_code == 200
+
+
+def test_turno_que_nao_chama_nada_nao_consome_o_dia(api):
+    import src.budget as budget
+
+    api.agente.custo_por_turno = 0
+    c = cliente(api)
+    for _ in range(10):
+        c.post("/api/chat", json={"mensagem": "oi"})
+    assert budget.usado() == 0
 
 
 def test_rate_limit_por_ip_real(api, monkeypatch):

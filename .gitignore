@@ -12,3 +12,7 @@ htmlcov/
 # Trava de deploy, local da VPS: o autopull pula o diretorio enquanto existir.
 # Nunca vai para o repo — commitado, congelaria o deploy para sempre.
 .deploy-freeze
+
+# Gerado pelo CI antes do build (scripts/gerar_provas.py). Gerado e gerado:
+# numero de prova commitado envelhece em silencio.
+agent/static/proof.json
