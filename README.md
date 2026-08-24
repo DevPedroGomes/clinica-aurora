@@ -30,6 +30,11 @@ navegador ──▶ agente (FastAPI)  ──HTTP──▶ clinica-aurora-erp (Fa
 Dois processos separados de propósito: é o que faz o botão "derrubar o sistema"
 significar alguma coisa, e é como um cliente real seria integrado.
 
+Um terceiro processo, `mcpsrv/`, expõe o MESMO motor de política como servidor
+MCP em `https://aurora.pgdev.com.br/mcp`. Quem pluga o próprio Claude ou Cursor
+ali continua sujeito às regras da clínica, e recebe o código da regra quando é
+recusado: o seu agente, as minhas regras, o meu log. Ver `mcpsrv/README.md`.
+
 ## Rodando
 
 ```bash

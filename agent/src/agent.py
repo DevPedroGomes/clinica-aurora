@@ -34,7 +34,13 @@ from .tools.agenda import (
     marcar_consulta,
     remarcar_consulta,
 )
-from .tools.registry import REGISTRY, AgentContext, ToolError, schema_para_anthropic
+from .tools.registry import (
+    REGISTRY,
+    AgentContext,
+    ToolError,
+    assinatura,
+    schema_para_anthropic,
+)
 
 # Modelo de conversa da arquitetura de referência (docs/03-arquitetura.md).
 MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
@@ -63,20 +69,6 @@ HANDLERS = {
     "abrir_vaga": abrir_vaga,
     "marcar_consulta": marcar_consulta,
 }
-
-
-def assinatura(nome: str, entrada: dict[str, Any]) -> str:
-    """Identidade de uma operação de escrita, para o gate de confirmação.
-
-    Usa só os `confirm_fields` da tool: confirmar "remarca para 16h" não
-    autoriza executar "remarca para 17h", mas confirmar "cancela a do João"
-    continua valendo depois que o agente anexa o motivo que a pessoa deu.
-    Ordenada porque a mesma intenção precisa produzir a mesma assinatura.
-    """
-    spec = REGISTRY.get(nome)
-    campos = spec.confirm_fields if spec else tuple(entrada)
-    relevante = {k: entrada.get(k) for k in campos}
-    return f"{nome}:{json.dumps(relevante, sort_keys=True, ensure_ascii=False)}"
 
 
 @dataclass

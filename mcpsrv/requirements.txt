@@ -1,0 +1,16 @@
+# Conjunto SEPARADO do agente de proposito, e nao por gosto.
+#
+# O `mcp` puxa `sse-starlette>=3.4.8`, que exige `starlette>=0.49.1`. O agente
+# roda `fastapi==0.115.6`, que exige `starlette<0.42.0`. Os dois nao cabem no
+# mesmo interpretador, e forcar um override seria remendo: o certo e que este
+# processo, que nao usa FastAPI para nada, tenha o proprio conjunto.
+#
+# Efeito colateral aceito: o codigo COMPARTILHADO (src/policy, src/tools,
+# src/adapters) roda sob pydantic 2.13 aqui e 2.10 no agente. Por isso
+# `tests/test_compartilhado.py` exercita politica e schema de tool sob ESTA
+# resolucao — se as duas divergirem, quebra aqui antes de chegar no ar.
+mcp==1.29.0
+httpx==0.28.1
+PyYAML==6.0.2
+pydantic==2.13.4
+uvicorn[standard]==0.34.0

@@ -194,6 +194,25 @@ def tool(
     return decorator
 
 
+def assinatura(nome: str, entrada: dict[str, Any]) -> str:
+    """Identidade de uma operação de escrita, para o gate de confirmação.
+
+    Usa só os `confirm_fields` da tool: confirmar "remarca para 16h" não
+    autoriza executar "remarca para 17h", mas confirmar "cancela a do João"
+    continua valendo depois que o agente anexa o motivo que a pessoa deu.
+    Ordenada porque a mesma intenção precisa produzir a mesma assinatura.
+
+    Mora aqui, e não no loop do agente, porque é propriedade da TOOL e não de
+    quem a chama: o servidor MCP precisa da mesma identidade para aplicar o
+    mesmo gate, e importá-la de `agent.py` arrastaria o SDK da Anthropic para
+    um processo que não fala com modelo nenhum.
+    """
+    spec = REGISTRY.get(nome)
+    campos = spec.confirm_fields if spec else tuple(entrada)
+    relevante = {k: entrada.get(k) for k in campos}
+    return f"{nome}:{json.dumps(relevante, sort_keys=True, ensure_ascii=False)}"
+
+
 def schema_para_anthropic() -> list[dict[str, Any]]:
     """Schemas no formato de tool_use da Anthropic, derivados do Pydantic.
 

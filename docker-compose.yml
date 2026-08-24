@@ -101,6 +101,68 @@ services:
       - "traefik.http.middlewares.aurora-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.aurora-security.headers.frameDeny=true"
 
+  # Servidor MCP: o mesmo motor de politica, exposto pro agente do visitante.
+  #
+  # Servico separado, e nao uma rota no `agente`, por dependencia: o SDK do MCP
+  # arrasta `sse-starlette`, que exige `starlette>=0.49`, e o agente roda
+  # `fastapi==0.115.6`, que exige `starlette<0.42`. Os dois nao cabem no mesmo
+  # interpretador. Separar tambem impede que uma sessao MCP mal comportada
+  # derrube a demo web.
+  #
+  # Sem DNS novo de proposito: o Traefik roteia por PATH no dominio que ja
+  # existe. A regra `Host && PathPrefix` e mais longa que a do `agente`, entao
+  # ganha por prioridade — mas a prioridade vai explicita abaixo, porque
+  # depender do comprimento da regra e o tipo de coisa que quebra quando alguem
+  # renomeia um host.
+  mcp:
+    image: ghcr.io/devpedrogomes/clinica-aurora/mcp:latest
+    build:
+      context: .
+      dockerfile: mcpsrv/Dockerfile
+    container_name: aurora-mcp
+    restart: unless-stopped
+    depends_on:
+      - erp
+    environment:
+      ERP_URL: "http://erp:8080"
+    healthcheck:
+      test: ["CMD", "python", "/app/mcpsrv/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.5'
+        reservations:
+          memory: 96M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.aurora-mcp.entrypoints=https"
+      - "traefik.http.routers.aurora-mcp.rule=Host(`aurora.pgdev.com.br`) && PathPrefix(`/mcp`)"
+      - "traefik.http.routers.aurora-mcp.priority=100"
+      - "traefik.http.routers.aurora-mcp.tls=true"
+      - "traefik.http.routers.aurora-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.aurora-mcp.middlewares=aurora-mcp-security@docker"
+      - "traefik.http.services.aurora-mcp.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.stsPreload=true"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.aurora-mcp-security.headers.frameDeny=true"
+
 volumes:
   aurora_budget:
 
