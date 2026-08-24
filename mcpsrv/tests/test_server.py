@@ -243,6 +243,36 @@ def test_toda_tool_do_registry_esta_exposta():
         assert hasattr(server, f"{nome}_tool"), f"{nome} não foi exposta no MCP"
 
 
+def test_protecao_de_host_esta_ligada_e_conhece_o_dominio_publico():
+    """Regressao de um `421 Invalid Host header` que so apareceu em producao.
+
+    O SDK liga protecao contra DNS rebinding por padrao e, com a allowlist
+    vazia, aceita so localhost. Atras do Traefik isso derruba TODO cliente. A
+    protecao continua ligada de proposito; o que mudou e ela saber qual e o
+    nosso host.
+
+    O sufixo `:*` importa: a comparacao do SDK e exata, entao `127.0.0.1` sozinho
+    nao casa com `127.0.0.1:8080`, que e o que o healthcheck manda.
+    """
+    seguranca = server.servidor.settings.transport_security
+    assert seguranca is not None
+    assert seguranca.enable_dns_rebinding_protection is True
+    assert "aurora.pgdev.com.br" in seguranca.allowed_hosts
+
+    validador = server.TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["aurora.pgdev.com.br", "127.0.0.1:*"],
+        allowed_origins=[],
+    )
+    from mcp.server.transport_security import TransportSecurityMiddleware
+
+    m = TransportSecurityMiddleware(validador)
+    assert m._validate_host("aurora.pgdev.com.br") is True
+    assert m._validate_host("127.0.0.1:8080") is True
+    assert m._validate_host("127.0.0.1") is False
+    assert m._validate_host("atacante.com") is False
+
+
 def test_dominio_compartilhado_carrega_sob_as_deps_deste_servico():
     """pydantic aqui é 2.13; no agente é 2.10. Este teste vigia a diferença."""
     from src.policy.engine import PolicyEngine

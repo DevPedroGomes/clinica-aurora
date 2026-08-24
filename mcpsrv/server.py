@@ -57,6 +57,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
 from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 
 import src.tools.agenda  # noqa: F401,E402  — o import popula o REGISTRY
 from src.adapters.erp import ErpAdapter  # noqa: E402
@@ -87,8 +88,25 @@ HANDLERS = {
     "marcar_consulta": marcar_consulta,
 }
 
+# Hosts que este servidor aceita no cabecalho Host. O SDK liga protecao contra
+# DNS rebinding por padrao e, com a lista vazia, so aceita localhost — atras do
+# Traefik isso vira `421 Invalid Host header` para todo mundo. A protecao e certa
+# e fica LIGADA; o que muda e ela saber qual e o nosso host de verdade.
+HOSTS_PERMITIDOS = [
+    h.strip()
+    for h in os.getenv("MCP_ALLOWED_HOSTS", "aurora.pgdev.com.br").split(",")
+    if h.strip()
+]
+
 servidor = FastMCP(
     name="clinica-aurora",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=HOSTS_PERMITIDOS,
+        # Origin so importa para cliente de navegador. Um MCP consumido por
+        # Claude ou Cursor nao manda Origin, e exigir um quebraria os dois.
+        allowed_origins=[f"https://{h}" for h in HOSTS_PERMITIDOS],
+    ),
     instructions=(
         "Agenda de uma clínica fictícia, exposta ATRÁS de um motor de política "
         "determinístico. Você pode ler e escrever, mas as regras do negócio são "

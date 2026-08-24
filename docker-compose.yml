@@ -125,6 +125,12 @@ services:
       - erp
     environment:
       ERP_URL: "http://erp:8080"
+      # O healthcheck bate em 127.0.0.1:8080, entao ele tambem precisa estar na
+      # allowlist de Host, senao o container se declara doente sozinho. O sufixo
+      # `:*` NAO e decoracao: a comparacao do SDK e exata, e `127.0.0.1` sozinho
+      # nao casa com `127.0.0.1:8080`. O host publico vai sem porta porque o
+      # Traefik encaminha assim no 443.
+      MCP_ALLOWED_HOSTS: "aurora.pgdev.com.br,127.0.0.1:*,localhost:*"
     healthcheck:
       test: ["CMD", "python", "/app/mcpsrv/healthcheck.py"]
       interval: 30s
