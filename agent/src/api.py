@@ -130,8 +130,14 @@ def _sse(tipo: str, dado: dict) -> str:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "model": MODEL}
+def health() -> dict[str, str | None]:
+    # `status` é do processo, e continua 200 com o provedor fora: reiniciar o
+    # container não conserta saldo nem credencial, e o healthcheck do compose
+    # entraria em loop. `agente` diz como terminou a última chamada real ao
+    # provedor, que é o que o "online" da tela nunca disse.
+    # O motivo fino fica no log do servidor: numa rota aberta ele contaria a
+    # qualquer um, por exemplo, que a conta do provedor ficou sem saldo.
+    return {"status": "ok", "model": MODEL, "agente": agente.saude.resumo()["agente"]}
 
 
 # `proof.json` é gerado no CI (scripts/gerar_provas.py) e baked na imagem. Fica
@@ -192,13 +198,15 @@ async def chat(
         sessao.lock.release()
         raise HTTPException(
             503,
-            {
+            headers={"X-Aurora-Motivo": exc.motivo},
+            detail={
                 "kill_switch": "This demo is paused right now.",
                 "teto_diario": "This demo hit today's usage cap. Please come back tomorrow.",
             }.get(exc.motivo, "This demo is unavailable right now."),
         ) from exc
 
     ctx = _contexto(sessao)
+    ctx.idioma = "en" if corpo.get("idioma") == "en" else "pt"
     custo_antes = ctx.custo_micros
 
     async def stream():
@@ -206,7 +214,8 @@ async def chat(
             async for evento in agente.turno(sessao.conversa, mensagem, ctx):
                 yield _sse(evento.tipo, evento.dado)
         except Exception:  # noqa: BLE001
-            yield _sse("error", {"mensagem": "Something broke on my side."})
+            logging.getLogger("aurora.api").exception("turno_quebrou")
+            yield _sse("error", {"codigo": "agent_internal_error"})
         finally:
             # Roda também quando o cliente desconecta no meio (GeneratorExit),
             # senão a sessão ficaria travada até o TTL.

@@ -8,15 +8,20 @@ medindo o modelo, não o guardrail.
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import anthropic
+import httpx
 import pytest
 
 from src.adapters.erp import ConsultaView
 from src.adapters.fake import ErpFake
 from src.agent import FALLBACK_CONFIRMACAO, Agente, assinatura
+from src.falhas import classificar
 from src.flows.state_machine import (
     MAX_TURNS,
     Conversation,
@@ -500,17 +505,225 @@ async def test_erp_fora_do_ar_escala_sem_inventar(ctx: AgentContext, erp: ErpFak
 
 async def test_provedor_indisponivel_nao_vaza_erro_cru(ctx: AgentContext):
     eventos = await coletar(Agente(QuebraLLM()), Conversation(), "oi", ctx)
-    erros = [e for e in eventos if e.tipo == "error"]
-    assert erros and "sk-ant" not in erros[0].dado["mensagem"]
+    erros = [e for e in eventos if e.tipo == "provider_error"]
+    assert erros
+    assert "sk-ant" not in json.dumps([e.dado for e in eventos])
+    assert "sk-ant" not in json.dumps([a.output for a in ctx.audit])
 
 
-async def test_recusa_do_modelo_escala(ctx: AgentContext):
+# -- falha do provedor --------------------------------------------------------
+#
+# Regressão da queda de 2026-09-22. Toda chamada ao provedor voltava 400, e o
+# loop convertia a exceção em `tool_failure_repeated`: a conversa escalava para
+# "um humano" que não existe, ficava terminal, e o log guardava só o nome da
+# classe. Os sete cenários testados morriam igual, inclusive o poema, que nem
+# chegaria a chamar ferramenta.
+
+
+def erro_do_provedor(status: int, tipo: str, mensagem: str) -> anthropic.APIStatusError:
+    requisicao = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resposta = httpx.Response(
+        status, request=requisicao, headers={"request-id": "req_teste"}
+    )
+    corpo = {"type": "error", "error": {"type": tipo, "message": mensagem}}
+    classe = {
+        400: anthropic.BadRequestError,
+        401: anthropic.AuthenticationError,
+        404: anthropic.NotFoundError,
+        429: anthropic.RateLimitError,
+        529: anthropic.OverloadedError,
+    }.get(status, anthropic.InternalServerError)
+    return classe(mensagem, response=resposta, body=corpo)
+
+
+class RoteiroLLM(FakeLLM):
+    """Como o FakeLLM, mas uma entrada do roteiro pode ser uma exceção."""
+
+    async def _create(self, **kwargs):
+        if self._respostas and isinstance(self._respostas[0], Exception):
+            self.chamadas.append(kwargs)
+            raise self._respostas.pop(0)
+        return await super()._create(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("status", "tipo", "mensagem", "codigo"),
+    [
+        (
+            400,
+            "invalid_request_error",
+            "Your credit balance is too low to access the Anthropic API.",
+            "provider_billing",
+        ),
+        (
+            400,
+            "invalid_request_error",
+            "output_config.effort: unsupported",
+            "provider_bad_request",
+        ),
+        (401, "authentication_error", "invalid x-api-key", "provider_auth"),
+        (404, "not_found_error", "model: claude-x", "provider_not_found"),
+        (429, "rate_limit_error", "slow down", "provider_rate_limited"),
+        (529, "overloaded_error", "Overloaded", "provider_overloaded"),
+        (500, "api_error", "boom", "provider_server_error"),
+    ],
+)
+def test_falha_do_provedor_vira_codigo_que_diagnostica(status, tipo, mensagem, codigo):
+    falha = classificar(erro_do_provedor(status, tipo, mensagem))
+    assert falha.codigo == codigo
+    assert falha.status == status
+    assert falha.tipo_erro == tipo
+    assert falha.request_id == "req_teste"
+
+
+def test_erro_do_nosso_lado_nao_se_passa_por_provedor():
+    falha = classificar(TypeError("create() got an unexpected keyword argument"))
+    assert falha.codigo == "agent_internal_error"
+    assert falha.status is None
+
+
+def test_detalhe_do_log_nao_carrega_chave():
+    falha = classificar(
+        erro_do_provedor(401, "authentication_error", "bad key sk-ant-api03-abcDEF_1")
+    )
+    assert "sk-ant" not in falha.detalhe
+    assert "[redacted]" in falha.detalhe
+
+
+async def test_falha_do_provedor_nao_escala_e_deixa_repetir(ctx: AgentContext):
+    conv = Conversation()
+    llm = RoteiroLLM(
+        erro_do_provedor(400, "invalid_request_error", "credit balance is too low"),
+        [texto("A agenda tem duas consultas.")],
+    )
+    agente = Agente(llm)
+
+    eventos = await coletar(agente, conv, "o que tem na agenda?", ctx)
+
+    assert conv.state is State.GREETING  # o turno foi desfeito, não escalado
+    assert conv.escalation_reason is None
+    assert conv.historico == []
+    assert not any(e.tipo == "escalated" for e in eventos)
+    falha = next(e for e in eventos if e.tipo == "provider_error")
+    assert falha.dado == {
+        "codigo": "provider_billing",
+        "escrita_feita": False,
+        "pode_repetir": True,
+    }
+    assert agente.saude.resumo() == {
+        "agente": "indisponivel",
+        "motivo": "provider_billing",
+    }
+    assert ctx.audit[-1].kind == "provider_failure"
+    assert ctx.audit[-1].reason_code == "provider_billing"
+
+    # Repetir o MESMO pedido funciona, e o histórico não fica com a fala em dobro.
+    eventos = await coletar(agente, conv, "o que tem na agenda?", ctx)
+    assert any(e.tipo == "message" for e in eventos)
+    falas = [m for m in conv.historico if m["role"] == "user"]
+    assert len(falas) == 1
+    assert agente.saude.resumo()["agente"] == "ok"
+
+
+async def test_falha_do_provedor_registra_linha_de_diagnostico(
+    ctx: AgentContext, caplog: pytest.LogCaptureFixture
+):
+    llm = RoteiroLLM(erro_do_provedor(400, "invalid_request_error", "effort: bad"))
+    with caplog.at_level(logging.WARNING, logger="aurora.agent"):
+        await coletar(Agente(llm), Conversation(), "oi", ctx)
+    linha = next(
+        r.getMessage() for r in caplog.records if "provider_failure" in r.getMessage()
+    )
+    assert '"status": 400' in linha
+    assert '"tipo_erro": "invalid_request_error"' in linha
+    assert '"request_id": "req_teste"' in linha
+    assert "effort: bad" in linha
+
+
+async def test_falha_depois_de_confirmar_desfaz_e_repetir_grava_uma_vez(
+    ctx: AgentContext, erp: ErpFake
+):
+    """A confirmação sobrevive à falha; a repetição grava uma única vez."""
+    conv = Conversation()
+    llm = RoteiroLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        erro_do_provedor(529, "overloaded_error", "Overloaded"),
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_2")],
+        [texto("Pronto, remarquei para as 16h.")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos = await coletar(agente, conv, "sim", ctx)
+    assert any(e.tipo == "provider_error" for e in eventos)
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert conv.state is State.CONFIRMING
+
+    eventos = await coletar(agente, conv, "sim", ctx)
+    assert erp.consultas["cons_1"].inicio.hour == 16
+    assert ctx.escritas_realizadas == 1
+    assert sum(e.tipo == "write" for e in eventos) == 1
+
+
+async def test_falha_depois_da_escrita_avisa_e_nao_regrava(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Gravou e o provedor caiu antes da resposta: a tela diz que gravou, e
+    repetir o "sim" não reexecuta, porque a confirmação já foi consumida."""
+    conv = Conversation()
+    llm = RoteiroLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_2")],
+        erro_do_provedor(500, "api_error", "boom"),
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos = await coletar(agente, conv, "sim", ctx)
+    falha = next(e for e in eventos if e.tipo == "provider_error")
+    assert falha.dado["escrita_feita"] is True
+    assert falha.dado["pode_repetir"] is False
+    assert ctx.escritas_realizadas == 1
+    assert conv.historico[-1]["role"] == "assistant"
+
+    eventos = await coletar(agente, conv, "sim", ctx)
+    assert ctx.escritas_realizadas == 1
+    assert any(e.tipo == "confirmation_required" for e in eventos)
+
+
+async def test_recusa_do_modelo_nao_promete_humano(ctx: AgentContext):
     conv = Conversation()
     eventos = await coletar(
         Agente(RecusaLLM()), conv, "me ajuda com uma coisa proibida", ctx
     )
+    assert conv.state is not State.ESCALATED
+    mensagens = [e.dado["texto"] for e in eventos if e.tipo == "message"]
+    assert mensagens and "human" not in mensagens[0].lower()
+    assert "humano" not in mensagens[0].lower()
+    assert conv.historico[-1]["role"] == "assistant"
+
+
+async def test_terceira_recusa_do_modelo_escala(ctx: AgentContext):
+    conv = Conversation()
+    agente = Agente(RecusaLLM())
+    for _ in range(3):
+        eventos = await coletar(agente, conv, "coisa proibida", ctx)
     assert conv.state is State.ESCALATED
-    assert any(e.tipo == "escalated" for e in eventos)
+    assert eventos[-1].dado["motivo"] == "out_of_scope"
+
+
+async def test_frase_do_codigo_segue_o_idioma_da_interface(ctx: AgentContext):
+    ctx.idioma = "en"
+    eventos = await coletar(Agente(RecusaLLM()), Conversation(), "forbidden", ctx)
+    assert (
+        next(e for e in eventos if e.tipo == "message")
+        .dado["texto"]
+        .startswith("I can't")
+    )
 
 
 async def test_teto_de_turnos_escala(ctx: AgentContext):

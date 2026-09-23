@@ -15,6 +15,7 @@ Nenhum dos três pode depender de o modelo lembrar de respeitá-los.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator
@@ -24,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from anthropic import AsyncAnthropic
 
+from .falhas import FalhaDoProvedor, classificar
 from .flows.state_machine import Conversation, State
 from .pricing import custo as calcular_custo
 from .prompts.system import PROMPT_ID, system_blocks
@@ -56,11 +58,38 @@ MAX_ITERACOES = 6
 # quebrado. Estas frases são as ÚNICAS que este arquivo põe na boca do agente, e
 # nenhuma delas afirma que algo foi feito.
 #
-# Em inglês porque a interface é em inglês: são as duas frases que o CÓDIGO
-# emite, então não têm como seguir o idioma da pessoa como o modelo segue. É
-# raro chegarem à tela, e o inglês é o idioma padrão da demo.
-FALLBACK_CONFIRMACAO = "Shall I go ahead?"
-FALLBACK_MUDO = "Sorry, I lost track. Could you say that again?"
+# Seguem o idioma da INTERFACE (`ctx.idioma`), não o da pessoa: são as frases
+# que o CÓDIGO emite, então não têm como acompanhar o idioma de quem escreve
+# como o modelo acompanha. É raro chegarem à tela.
+FALLBACKS = {
+    "pt": {
+        "confirmacao": "Posso seguir?",
+        "mudo": "Desculpe, me perdi. Pode repetir?",
+        "recusa": "Não posso ajudar com isso. Só consigo cuidar da agenda da clínica.",
+    },
+    "en": {
+        "confirmacao": "Shall I go ahead?",
+        "mudo": "Sorry, I lost track. Could you say that again?",
+        "recusa": "I can't help with that. I can only handle the clinic's schedule.",
+    },
+}
+FALLBACK_CONFIRMACAO = FALLBACKS["pt"]["confirmacao"]
+FALLBACK_MUDO = FALLBACKS["pt"]["mudo"]
+
+# O que entra no histórico quando uma escrita JÁ foi gravada e a chamada
+# seguinte ao provedor falhou. Sem isto o modelo, no próximo turno, não saberia
+# se a pessoa leu a confirmação, e a pessoa não leu: a tela avisa por código.
+NOTA_ESCRITA_SEM_RESPOSTA = (
+    "(A alteração acima foi gravada no ERP. A resposta à pessoa não chegou a ser "
+    "escrita porque o provedor falhou; a tela avisou que a gravação aconteceu.)"
+)
+
+log = logging.getLogger("aurora.agent")
+
+
+def _frase(ctx: AgentContext, chave: str) -> str:
+    return FALLBACKS.get(ctx.idioma, FALLBACKS["pt"])[chave]
+
 
 HANDLERS = {
     "listar_agenda": listar_agenda,
@@ -79,9 +108,41 @@ class Evento:
     dado: dict[str, Any]
 
 
+@dataclass
+class Saude:
+    """Resultado da última chamada ao provedor, para o /health e para a tela.
+
+    O /health respondia "ok" com o agente parado havia horas: ele provava que
+    o processo estava de pé, e a tela mostrava o ERP "online". Nenhum dos dois
+    dizia se o assistente conseguia responder. Isto não chama o provedor (cada
+    checagem custaria dinheiro); só guarda como terminou a última tentativa real.
+    """
+
+    ultimo_ok_em: float | None = None
+    ultima_falha_em: float | None = None
+    ultima_falha_codigo: str | None = None
+
+    def registrar_ok(self) -> None:
+        self.ultimo_ok_em = time.time()
+
+    def registrar_falha(self, codigo: str) -> None:
+        self.ultima_falha_em = time.time()
+        self.ultima_falha_codigo = codigo
+
+    def resumo(self) -> dict[str, str | None]:
+        if self.ultima_falha_em is None and self.ultimo_ok_em is None:
+            return {"agente": "sem_dados", "motivo": None}
+        if self.ultima_falha_em is not None and (
+            self.ultimo_ok_em is None or self.ultima_falha_em > self.ultimo_ok_em
+        ):
+            return {"agente": "indisponivel", "motivo": self.ultima_falha_codigo}
+        return {"agente": "ok", "motivo": None}
+
+
 class Agente:
     def __init__(self, client: AsyncAnthropic | None = None) -> None:
         self._client = client or AsyncAnthropic()
+        self.saude = Saude()
 
     async def turno(
         self, conv: Conversation, texto_do_usuario: str, ctx: AgentContext
@@ -91,6 +152,14 @@ class Agente:
                 "escalated", {"motivo": conv.escalation_reason, "ja_estava": True}
             )
             return
+
+        # Foto do começo do turno. Se o provedor falhar antes de qualquer escrita,
+        # o turno é desfeito inteiro e a pessoa pode simplesmente mandar de novo:
+        # nada no ERP mudou, então repetir não duplica nada.
+        estado_inicial = conv.state
+        turnos_iniciais = conv.turns
+        tamanho_do_historico = len(conv.historico)
+        escritas_iniciais = ctx.escritas_realizadas
 
         gatilho = conv.registrar_turno()
         if gatilho:
@@ -136,15 +205,45 @@ class Agente:
                     metadata={"user_id": f"tenant:{ctx.tenant_id}"},
                 )
             except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
-                conv.escalar("tool_failure_repeated")
+                falha = classificar(exc)
+                self.saude.registrar_falha(falha.codigo)
+                self._registrar_falha(falha, ctx)
+
+                # Falha do provedor não é falha de ferramenta, e escalar aqui
+                # mandava a conversa para um "humano" inexistente e a travava
+                # para sempre. Duas saídas, e nenhuma reexecuta escrita:
+                #  - nada foi gravado neste turno: desfaz o turno, a pessoa manda
+                #    de novo;
+                #  - algo foi gravado: mantém o histórico (a escrita aconteceu) e
+                #    diz isso na tela, para ninguém repetir o pedido às cegas.
+                escrita_feita = ctx.escritas_realizadas > escritas_iniciais
+                ctx.propostas_do_turno.clear()
+                if escrita_feita:
+                    conv.historico.append(
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": NOTA_ESCRITA_SEM_RESPOSTA}
+                            ],
+                        }
+                    )
+                else:
+                    del conv.historico[tamanho_do_historico:]
+                    # Restauração, não transição: o turno não aconteceu.
+                    conv.state = estado_inicial
+                    conv.turns = turnos_iniciais
                 yield Evento(
-                    "error", {"mensagem": "The assistant is unavailable right now."}
+                    "provider_error",
+                    {
+                        "codigo": falha.codigo,
+                        "escrita_feita": escrita_feita,
+                        "pode_repetir": not escrita_feita,
+                    },
                 )
-                yield Evento(
-                    "escalated",
-                    {"motivo": "tool_failure_repeated", "detalhe": type(exc).__name__},
-                )
+                yield Evento("state", {"estado": conv.state.value})
                 return
+
+            self.saude.registrar_ok()
 
             # O custo entra no log de decisão pelo mesmo motivo que a regra
             # entra: sem ele, "teto de gasto" é uma afirmação que ninguém pode
@@ -179,13 +278,18 @@ class Agente:
             )
 
             if resposta.stop_reason == "refusal":
-                # O modelo recusou por segurança. Não insista: escale.
-                conv.escalar("out_of_scope")
-                yield Evento(
-                    "message",
-                    {"texto": "I can't help with that. Let me get a human for you."},
+                # O modelo recusou por segurança. Não insista, e não prometa
+                # pessoa nenhuma: conta como fora de escopo, que só escala na
+                # terceira vez, como qualquer outro pedido fora do escopo.
+                recusa = _frase(ctx, "recusa")
+                conv.historico.append(
+                    {"role": "assistant", "content": [{"type": "text", "text": recusa}]}
                 )
-                yield Evento("escalated", {"motivo": "out_of_scope"})
+                yield Evento("message", {"texto": recusa})
+                gatilho = conv.registrar_fora_de_escopo()
+                if gatilho:
+                    conv.escalar(gatilho)
+                    yield Evento("escalated", {"motivo": gatilho})
                 return
 
             # Bloco de texto VAZIO não pode entrar no histórico. Quando o gate de
@@ -203,10 +307,9 @@ class Agente:
                 # Turno sem nada visível e sem nada a executar: em vez de sumir,
                 # fala. O mesmo texto vai para o histórico, senão o que o modelo
                 # lembra e o que a pessoa leu divergem no turno seguinte.
-                texto = (
-                    FALLBACK_CONFIRMACAO
-                    if conv.state is State.CONFIRMING
-                    else FALLBACK_MUDO
+                texto = _frase(
+                    ctx,
+                    "confirmacao" if conv.state is State.CONFIRMING else "mudo",
                 )
                 blocos = [*blocos, {"type": "text", "text": texto}]
 
@@ -244,6 +347,26 @@ class Agente:
 
         conv.escalar("turn_limit")
         yield Evento("escalated", {"motivo": "turn_limit"})
+
+    @staticmethod
+    def _registrar_falha(falha: FalhaDoProvedor, ctx: AgentContext) -> None:
+        # Linha de diagnóstico no log do servidor: status, tipo do erro, request
+        # id e a mensagem do provedor sanitizada. É o que faltou quando a demo
+        # caiu, e o log só dizia "400 Bad Request".
+        log.warning(
+            "provider_failure %s",
+            json.dumps(
+                {"tenant_id": ctx.tenant_id, "modelo": MODEL, **falha.log_payload()},
+                ensure_ascii=False,
+            ),
+        )
+        ctx.registrar(
+            kind="provider_failure",
+            tool=MODEL,
+            input={"classe": falha.classe},
+            output={"status": falha.status, "tipo_erro": falha.tipo_erro},
+            reason_code=falha.codigo,
+        )
 
     async def _executar(
         self,
@@ -341,7 +464,7 @@ class Agente:
                     _erro(
                         chamada.id,
                         decisao_quota.reason_code,
-                        "Preciso passar para a recepção para continuar.",
+                        "Esta conversa atingiu o limite de alterações da demonstração e foi encerrada.",
                     )
                 )
                 return
