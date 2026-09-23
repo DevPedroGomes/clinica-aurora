@@ -61,6 +61,9 @@ class AgentContext:
     erp: ErpAdapter
     at: datetime
     escritas_realizadas: int = 0
+    idioma: str = "pt"
+    """Idioma da INTERFACE ("pt" ou "en"). Só escolhe as poucas frases que o
+    código emite; a conversa acompanha o idioma de quem escreve."""
     custo_micros: int = 0
     """Quanto esta conversa já custou, em micro-dólares (ver `pricing.py`).
 

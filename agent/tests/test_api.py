@@ -44,7 +44,11 @@ def api(monkeypatch, tmp_path):
             ctx.custo_micros += self.custo_por_turno
             yield Evento("message", {"texto": f"ok: {texto}"})
 
-    mod.agente = AgenteFalso()
+    from src.agent import Saude
+
+    falso = AgenteFalso()
+    falso.saude = Saude()
+    mod.agente = falso
     return mod
 
 
@@ -60,6 +64,33 @@ def test_health_prova_que_o_processo_esta_de_pe(api):
     r = cliente(api).get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_health_diz_quando_o_agente_nao_consegue_responder(api):
+    """O processo de pé não é o agente respondendo: a queda de 2026-09-22
+    passou horas com /health "ok". O status HTTP continua 200 de propósito,
+    porque reiniciar o container não conserta provedor."""
+    api.agente.saude.registrar_falha("provider_billing")
+    r = cliente(api).get("/health")
+    assert r.status_code == 200
+    assert r.json()["agente"] == "indisponivel"
+    # O código fino fica no log do servidor, não numa rota aberta.
+    assert "provider_billing" not in r.text
+
+    api.agente.saude.registrar_ok()
+    assert cliente(api).get("/health").json()["agente"] == "ok"
+
+
+def test_idioma_da_interface_chega_ao_contexto(api):
+    c = cliente(api)
+    with c.stream("POST", "/api/chat", json={"mensagem": "hi", "idioma": "en"}) as r:
+        r.read()
+    sessao = next(iter(api._sessoes.values()))
+    assert sessao.ctx.idioma == "en"
+    # Valor fora da lista não passa: cai no português.
+    with c.stream("POST", "/api/chat", json={"mensagem": "oi", "idioma": "xx"}) as r:
+        r.read()
+    assert sessao.ctx.idioma == "pt"
 
 
 def test_mensagem_vazia_e_gigante_sao_recusadas(api):
@@ -168,7 +199,7 @@ def test_health_nao_conta_quanto_sobrou_do_teto(api):
     quanto falta para derrubar a demo do dia.
     """
     corpo = cliente(api).get("/health").json()
-    assert set(corpo) == {"status", "model"}
+    assert set(corpo) == {"status", "model", "agente"}
 
 
 def test_meta_sem_proof_json_devolve_vazio_em_vez_de_inventar(api, monkeypatch):
