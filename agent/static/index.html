@@ -1,27 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clínica Aurora: an agent that writes to a real schedule</title>
-<meta name="description" content="Live demo: an AI agent that writes to a real schedule and refuses when the business rule says no. The ERP it writes to is published alongside it.">
-<meta name="author" content="Pedro Gomes">
+<title>Clínica Aurora: um agente que grava numa agenda de verdade</title>
+<meta name="description" content="Demo ao vivo: um agente de IA que grava numa agenda de verdade, pede confirmação antes de alterar e recusa quando a regra da clínica não permite. O ERP em que ele grava é publicado ao lado.">
+<meta name="author" content="Gomio">
 
 <!-- Sem estas tags o link vira URL crua no LinkedIn, no WhatsApp e no Upwork —
      que é justamente onde ele é compartilhado. og:image precisa ser absoluta. -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aurora.pgdev.com.br/">
 <meta property="og:site_name" content="Gomio">
-<meta property="og:locale" content="en_US">
-<meta property="og:title" content="An agent that writes to the schedule, and refuses when the rule says no">
-<meta property="og:description" content="Open demo, no signup: talk to the agent and watch the row change in the ERP live. The ERP ships with it, OpenAPI and all, so you can inspect the other side of the integration.">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Um agente que grava na agenda, e recusa quando a regra não deixa">
+<meta property="og:description" content="Demo aberta, sem cadastro: converse com o agente e veja a linha mudar no ERP ao vivo. Ele pede confirmação antes de gravar. Dados sintéticos.">
 <meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Clínica Aurora: live demo of an agent that writes to a real schedule.">
+<meta property="og:image:alt" content="Clínica Aurora: demo ao vivo de um agente que grava numa agenda de verdade.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="An agent that writes to the schedule, and refuses when the rule says no">
-<meta name="twitter:description" content="Live demo: talk to the agent and watch the row change in the ERP.">
+<meta name="twitter:title" content="Um agente que grava na agenda, e recusa quando a regra não deixa">
+<meta name="twitter:description" content="Demo ao vivo: converse com o agente e veja a linha mudar no ERP.">
 <meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
 
 <!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
@@ -88,6 +89,10 @@
      isso o visitante clica na recusa por política e pode ler como bot falhando. */
   .sugestoes .rotulo{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;
     color:var(--txt3);font-weight:600}
+  /* O resultado esperado, em uma linha: é o que evita ler a recusa como falha. */
+  .sugestoes .efeito{font-size:10.5px;color:var(--txt3);max-width:30ch}
+  .sugestoes button{border-radius:12px}
+  .barra input:disabled{opacity:.5}
   /* Versão da política ao lado do código da regra: é o que prova, meses
      depois, sob qual regra a decisão foi tomada. */
   .versao{font-size:10px;color:var(--txt3);margin-left:.35rem;white-space:nowrap}
@@ -147,63 +152,63 @@
     Clínica Aurora
     <!-- Quem se impressiona com a demo precisa de um caminho para quem a fez.
          Sem isto a página termina em si mesma. -->
-    <span class="por">a demo by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a></span>
+    <span class="por"><span data-t="por">uma demo de</span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
   </div>
-  <p class="aviso">
-    A <strong>fictional</strong> clinic. Its ERP is published alongside: the write really happens, over HTTP, against
-    <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">a separate service you can inspect</a>.
-  </p>
+  <p class="aviso" data-t-html="aviso"></p>
   <!-- Barra de provas. Vazia por padrao e preenchida por /api/meta: os numeros
        sao GERADOS no CI, nunca digitados. Se o build nao rodou o gerador, ela
        continua invisivel — melhor nao afirmar do que afirmar errado. -->
   <div class="provas" id="provas" hidden></div>
   <div class="acoes">
-    <button id="chaos" class="perigo" aria-pressed="false">Break the system</button>
-    <button id="reset">Restart</button>
+    <button id="chaos" class="perigo" aria-pressed="false" data-t="chaos"></button>
+    <button id="reset" data-t="reset"></button>
+    <!-- A interface abre em português, que é o público da Gomio. A conversa
+         continua acompanhando o idioma de quem escreve, em qualquer um deles. -->
+    <button id="idioma" aria-label="Language / Idioma"></button>
   </div>
 </header>
 
 <main class="tela">
   <section class="col">
-    <div class="cabeca"><span>Conversation · clinic front desk</span><span id="estado">start</span></div>
-    <div class="chat" id="chat">
-      <div class="bolha ela">Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Write in any language, I'll answer in yours. What do you need?</div>
-    </div>
+    <div class="cabeca"><span data-t="cabecaConversa"></span><span id="estado"></span></div>
+    <div class="chat" id="chat"></div>
     <div class="sugestoes" id="sugestoes"></div>
     <form class="barra" id="form">
-      <input id="entrada" placeholder="move Ana's appointment to 4pm" autocomplete="off" maxlength="500">
-      <button type="submit" id="enviar">Send</button>
+      <input id="entrada" autocomplete="off" maxlength="500">
+      <button type="submit" id="enviar" data-t="enviar"></button>
     </form>
   </section>
 
   <section class="col">
-    <div class="cabeca"><span>Schedule in the ERP</span><span id="erpstatus">online</span></div>
+    <!-- Dois indicadores, porque são duas coisas. O "online" antigo era só do
+         ERP, e ficou verde durante a queda inteira do assistente. -->
+    <div class="cabeca">
+      <span data-t="cabecaAgenda"></span>
+      <span><span data-t="rotuloErp"></span> <b id="erpstatus">…</b> · <span data-t="rotuloAgente"></span> <b id="agentestatus">…</b></span>
+    </div>
     <div class="direita">
       <div>
         <table>
-          <thead><tr><th>Appointment</th><th>Patient</th><th>Practitioner</th><th>Starts</th></tr></thead>
-          <tbody id="agenda"><tr><td colspan="4" class="vazio">loading…</td></tr></tbody>
+          <thead><tr><th data-t="colConsulta"></th><th data-t="colPaciente"></th><th data-t="colProfissional"></th><th data-t="colInicio"></th></tr></thead>
+          <tbody id="agenda"><tr><td colspan="4" class="vazio" data-t="carregando"></td></tr></tbody>
         </table>
       </div>
       <div>
         <div class="cabeca" style="padding:0 0 .6rem;border:0;display:flex;justify-content:space-between;gap:.5rem">
-          <span>Decision log</span>
+          <span data-t="cabecaLog"></span>
           <!-- O que esta conversa custou de verdade, somando toda chamada paga.
                Fica ao lado do log porque e a mesma promessa: o que a demo
                afirma, ela mostra acontecendo. -->
-          <span title="What this conversation has cost so far, at the rates in pricing.yaml">this conversation: <b id="gasto" style="color:rgba(255,255,255,.75)">$0.00</b></span>
+          <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" style="color:rgba(255,255,255,.75)">$0.00</b></span>
         </div>
-        <div class="log" id="log"><p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p></div>
+        <div class="log" id="log"></div>
       </div>
     </div>
     <div class="rodape">
-      <strong style="color:rgba(255,255,255,.75)">Demo limits</strong> · anonymous session with its own isolated schedule · max 3 writes per conversation ·
-      daily spend ceiling in dollars, reserved before each paid call and reconciled against real token usage after · kill switch ·
-      nothing persists after the session.
+      <span data-t-html="limites"></span>
       <div class="assinatura">
-        Built by <a href="https://gomio.com.br" target="_blank" rel="noopener">Pedro Gomes</a> ·
-        <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
-        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener">other projects</a>
+        <span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
+        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
       </div>
     </div>
   </section>
@@ -213,41 +218,190 @@
 const $ = (s) => document.querySelector(s);
 const chat = $("#chat"), log = $("#log"), agenda = $("#agenda");
 let ultimoEstadoAgenda = new Map();
+let encerrada = false;
 
-// O estado da conversa é prova de que existe uma máquina explícita por trás —
-// mas o visitante não fala o vocabulário dela. O valor técnico fica no title,
-// para quem quiser inspecionar. Os rótulos são em inglês porque a interface é;
-// a CONVERSA acompanha o idioma de quem escreve (regra no system prompt).
-const ESTADOS = {
-  greeting: "start",
-  qualifying: "reading the request",
-  collecting: "collecting details",
-  confirming: "waiting for your confirmation",
-  executing: "executing",
-  resolved: "done",
-  escalated: "handed to a human",
+// Textos da interface. Tudo que a TELA diz passa por aqui; o que o MODELO diz
+// segue o idioma de quem escreve, em qualquer língua, e não depende disto.
+const T = {
+  pt: {
+    htmlLang: "pt-BR", locale: "pt-BR",
+    titulo: "Clínica Aurora: um agente que grava numa agenda de verdade",
+    por: "uma demo de",
+    aviso: 'Clínica <strong>fictícia</strong>, com dados sintéticos. A gravação acontece de verdade, por HTTP, num ERP separado que você pode inspecionar: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">documentação técnica da API</a> (em inglês).',
+    chaos: "Derrubar o ERP", chaosLigado: "Religar o ERP",
+    reset: "Reiniciar", idiomaBotao: "EN",
+    cabecaConversa: "Conversa · recepção da clínica",
+    enviar: "Enviar",
+    placeholder: "remarque a consulta da Ana para as 16h",
+    placeholderEncerrada: "Conversa encerrada. Clique em Reiniciar.",
+    cabecaAgenda: "Agenda no ERP",
+    rotuloErp: "ERP", rotuloAgente: "assistente",
+    erpOnline: "no ar", erpDown: "fora do ar (503)", erpSemResposta: "sem resposta",
+    agenteOk: "respondendo", agenteIndisponivel: "indisponível", agenteSemDados: "ainda sem uso",
+    colConsulta: "Consulta", colPaciente: "Paciente", colProfissional: "Profissional", colInicio: "Início",
+    carregando: "carregando…", semConsultas: "nenhuma consulta", vagaAberta: "vaga aberta",
+    cabecaLog: "Log de decisões",
+    gastoRotulo: "esta conversa:",
+    gastoTitulo: "Quanto esta conversa custou até agora, pelas tarifas de pricing.yaml",
+    logVazio: "Cada consulta à agenda, cada decisão de regra e cada gravação aparece aqui, com o código da regra que decidiu.",
+    limites: '<strong style="color:rgba(255,255,255,.75)">Limites da demo</strong> · sessão anônima com agenda própria e isolada · no máximo 3 alterações por conversa · teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real · botão de desligar geral · nada fica guardado depois da sessão.',
+    feitoPor: "Feito pela", outrosProjetos: "outros projetos",
+    saudacao: "Oi! Sou a assistente da recepção. Consulto a agenda, remarco, cancelo e abro vagas. Antes de qualquer alteração, eu digo o que vou fazer e espero você confirmar. Pode escrever em qualquer idioma: respondo no seu.",
+    pensando: "pensando…",
+    estados: {
+      greeting: "início", qualifying: "entendendo o pedido", collecting: "reunindo detalhes",
+      confirming: "esperando a sua confirmação", executing: "gravando", resolved: "concluído",
+      escalated: "encerrada",
+    },
+    sugestoes: [
+      { rotulo: "Só consultar", msg: "O que tem na agenda do Dr. Bruno?", efeito: "Lista as consultas. Nada muda na agenda." },
+      { rotulo: "Remarcar com confirmação", msg: "Remarque a consulta da Ana para as 16h", efeito: "Propõe a mudança e espera o seu “sim”. Só grava depois." },
+      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "Faltam menos de 24 h: a regra exige o motivo antes de cancelar." },
+      { rotulo: "Fora do expediente", msg: "Passe a consulta da Ana para domingo às 10h", efeito: "A regra de expediente recusa. Nada é gravado." },
+      { rotulo: "Fora do escopo", msg: "Escreva um poema sobre o mar", efeito: "Recusa curta. A conversa continua." },
+      { rotulo: "Outro idioma", msg: "¿Qué hay en la agenda?", efeito: "Responde em espanhol, no idioma de quem escreveu." },
+    ],
+    // Motivos de encerramento em linguagem de gente. O código técnico vai no
+    // log da direita, para quem quiser conferir.
+    motivos: {
+      explicit_request: "você pediu para falar com uma pessoa",
+      policy_denied_twice: "duas recusas seguidas das regras, ou o limite de alterações da demo",
+      out_of_scope: "três pedidos fora do escopo da agenda",
+      tool_failure_repeated: "o ERP falhou duas vezes seguidas",
+      turn_limit: "a conversa passou do limite de mensagens",
+    },
+    encerrada: (m) => `Conversa encerrada: ${m}. Numa clínica real ela iria para a recepção. Nesta demo esse encaminhamento é simulado e nenhuma pessoa recebeu a conversa. Clique em Reiniciar para começar outra.`,
+    provedorFalhou: "O assistente não conseguiu responder agora (falha no provedor de IA). Nada foi alterado na agenda. Você pode enviar a mensagem de novo.",
+    provedorFalhouDepoisDeGravar: "A alteração foi gravada (confira a agenda ao lado), mas o assistente caiu antes de responder. Não repita o pedido: ele já foi feito.",
+    erroInterno: "Algo quebrou do nosso lado. Nada foi alterado na agenda. Tente de novo.",
+    ocupado: "Ainda estou respondendo a mensagem anterior.",
+    muitas: "Muitas mensagens em pouco tempo. Espere alguns minutos.",
+    pausada: "A demo está pausada agora.",
+    teto: "A demo atingiu o teto de uso de hoje. Volte amanhã.",
+    indisponivel: "A demo está indisponível agora.",
+    invalida: "Mensagem vazia ou longa demais (máximo de 500 caracteres).",
+    semConexao: "A conexão caiu. Nada garante que a mensagem chegou: confira a agenda antes de repetir um pedido de alteração.",
+    erpCaiu: "O ERP desta sessão está fora do ar. Peça uma alteração e veja o que o agente faz: ele não confirma o que não gravou.",
+    erpVoltou: "O ERP voltou. Se a conversa já foi encerrada, clique em Reiniciar.",
+    reiniciada: "Agenda e conversa reiniciadas.",
+    log: {
+      leitura: "ferramenta · leitura", escrita: "ferramenta · escrita", gate: "confirmação · retida",
+      gateTexto: (t) => `<b>${t}</b> não executada: esperando a pessoa confirmar`,
+      permitida: "permitida", recusada: "recusada", regra: "regra", versaoRegra: "regra",
+      gravado: "gravado", resultado: "resultado", falhou: "falhou", llm: "llm",
+      cacheLido: (n) => `cache lido ${n}`, semCache: "sem leitura de cache", tarifas: "tarifas",
+      encerrada: "encerrada", simulado: "encaminhamento simulado",
+      provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b> · ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
+    },
+    provas: (d) => [
+      [`<b>${d.testes}</b> testes`, "Passaram no CI antes de a imagem ser construída"],
+      [`cobertura <b>${d.cobertura_total}%</b>`, "Agente inteiro"],
+      [`regras <b>${d.cobertura_policy}%</b>`, "Exigido 100% no CI: é o que decide o que pode ou não"],
+      [`<b>${esc(d.modelo)}</b>`, "Modelo configurado"],
+      [`regras <b>${esc(d.rules_version)}</b>`, "Versão de policy/rules.yaml carimbada em cada decisão"],
+      [`tarifas <b>${esc(d.rates_version)}</b>`, "Versão de pricing.yaml carimbada em cada linha de custo"],
+    ],
+  },
+  en: {
+    htmlLang: "en", locale: "en-US",
+    titulo: "Clínica Aurora: an agent that writes to a real schedule",
+    por: "a demo by",
+    aviso: 'A <strong>fictional</strong> clinic with synthetic data. The write really happens, over HTTP, against a separate ERP you can inspect: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">API reference</a>.',
+    chaos: "Take the ERP down", chaosLigado: "Bring the ERP back",
+    reset: "Restart", idiomaBotao: "PT",
+    cabecaConversa: "Conversation · clinic front desk",
+    enviar: "Send",
+    placeholder: "move Ana's appointment to 4pm",
+    placeholderEncerrada: "Conversation closed. Click Restart.",
+    cabecaAgenda: "Schedule in the ERP",
+    rotuloErp: "ERP", rotuloAgente: "assistant",
+    erpOnline: "online", erpDown: "down (503)", erpSemResposta: "no response",
+    agenteOk: "answering", agenteIndisponivel: "unavailable", agenteSemDados: "not used yet",
+    colConsulta: "Appointment", colPaciente: "Patient", colProfissional: "Practitioner", colInicio: "Starts",
+    carregando: "loading…", semConsultas: "no appointments", vagaAberta: "open slot",
+    cabecaLog: "Decision log",
+    gastoRotulo: "this conversation:",
+    gastoTitulo: "What this conversation has cost so far, at the rates in pricing.yaml",
+    logVazio: "Every schedule lookup, every policy decision and every write shows up here, with the code of the rule that decided it.",
+    limites: '<strong style="color:rgba(255,255,255,.75)">Demo limits</strong> · anonymous session with its own isolated schedule · max 3 changes per conversation · daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after · kill switch · nothing persists after the session.',
+    feitoPor: "Built by", outrosProjetos: "other projects",
+    saudacao: "Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Before any change I tell you what I'm about to do and wait for your confirmation. Write in any language, I'll answer in yours.",
+    pensando: "thinking…",
+    estados: {
+      greeting: "start", qualifying: "reading the request", collecting: "collecting details",
+      confirming: "waiting for your confirmation", executing: "writing", resolved: "done",
+      escalated: "closed",
+    },
+    sugestoes: [
+      { rotulo: "Read only", msg: "What's on Dr. Bruno's schedule?", efeito: "Lists the appointments. Nothing changes." },
+      { rotulo: "Reschedule with confirmation", msg: "Move Ana's appointment to 4pm", efeito: "Proposes the change and waits for your “yes”. Writes only after." },
+      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "Less than 24 h away: the rule requires a reason before cancelling." },
+      { rotulo: "Outside opening hours", msg: "Move Ana's appointment to Sunday at 10am", efeito: "The opening-hours rule refuses. Nothing is written." },
+      { rotulo: "Off-scope", msg: "Write me a poem about the sea", efeito: "Short refusal. The conversation goes on." },
+      { rotulo: "Another language", msg: "¿Qué hay en la agenda?", efeito: "Answers in Spanish, the language it was asked in." },
+    ],
+    motivos: {
+      explicit_request: "you asked to talk to a person",
+      policy_denied_twice: "two refusals in a row by the rules, or the demo's change limit",
+      out_of_scope: "three requests outside the schedule",
+      tool_failure_repeated: "the ERP failed twice in a row",
+      turn_limit: "the conversation went past the message limit",
+    },
+    encerrada: (m) => `Conversation closed: ${m}. In a real clinic it would go to the front desk. In this demo that handoff is simulated and no person received the conversation. Click Restart to start another.`,
+    provedorFalhou: "The assistant couldn't answer right now (AI provider failure). Nothing changed in the schedule. You can send the message again.",
+    provedorFalhouDepoisDeGravar: "The change was written (check the schedule on the right), but the assistant failed before replying. Don't repeat the request: it's already done.",
+    erroInterno: "Something broke on our side. Nothing changed in the schedule. Try again.",
+    ocupado: "Still answering the previous message.",
+    muitas: "Too many messages. Please wait a few minutes.",
+    pausada: "This demo is paused right now.",
+    teto: "This demo hit today's usage cap. Please come back tomorrow.",
+    indisponivel: "This demo is unavailable right now.",
+    invalida: "Empty or too long message (max 500 characters).",
+    semConexao: "Lost the connection. There's no guarantee the message arrived: check the schedule before repeating a change request.",
+    erpCaiu: "The ERP is down for this session. Ask for a change and watch what the agent does: it won't confirm what it didn't write.",
+    erpVoltou: "The ERP is back. If the conversation was already closed, click Restart.",
+    reiniciada: "Schedule and conversation restarted.",
+    log: {
+      leitura: "tool · read", escrita: "tool · write", gate: "gate · held",
+      gateTexto: (t) => `<b>${t}</b> not executed: waiting for the person to confirm`,
+      permitida: "allowed", recusada: "refused", regra: "policy", versaoRegra: "policy",
+      gravado: "written", resultado: "result", falhou: "failed", llm: "llm",
+      cacheLido: (n) => `cache read ${n}`, semCache: "no cache read", tarifas: "rates",
+      encerrada: "closed", simulado: "simulated handoff",
+      provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b> · ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
+    },
+    provas: (d) => [
+      [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
+      [`<b>${d.cobertura_total}%</b> coverage`, "Whole agent"],
+      [`policy <b>${d.cobertura_policy}%</b>`, "Gated at 100% in CI: it decides what is allowed"],
+      [`<b>${esc(d.modelo)}</b>`, "Configured model"],
+      [`rules <b>${esc(d.rules_version)}</b>`, "Version of policy/rules.yaml stamped on every decision"],
+      [`rates <b>${esc(d.rates_version)}</b>`, "Version of pricing.yaml stamped on every cost line"],
+    ],
+  },
 };
 
-// A quarta e de proposito fora de escopo. A quinta esta em espanhol: mostra,
-// sem precisar explicar, que a conversa acompanha o idioma de quem escreve.
-// Cada sugestão vem rotulada com o que ela PROVA. Sem o rótulo o visitante não
-// sabe que "cancel João's appointment" é justamente o botão que faz o agente
-// ser recusado por uma regra de negócio — que é a coisa mais rara desta demo.
-// Ele clicava, via uma recusa, e podia ler como o bot falhando.
-// Nenhum preset fala em "amanhã". A agenda é semeada no próximo dia ÚTIL,
-// que numa sexta ou num sábado não é amanhã — os dois presets que perguntavam
-// pelo dia seguinte devolviam agenda vazia justamente nesses dias, e o de ler
-// a agenda parecia um agente que não acha o que existe.
-const SUGESTOES = [
-  { rotulo: "read the schedule", msg: "what's on Dr. Bruno's schedule?" },
-  { rotulo: "a write that goes through", msg: "move Ana's appointment to 4pm" },
-  { rotulo: "a write a rule refuses", msg: "cancel João's appointment" },
-  // "escalates" era promessa errada: pedido fora de escopo recebe uma recusa
-  // curta e a conversa segue, que é o que o prompt manda e o que o README
-  // descreve. Quem escala é o momento do ERP derrubado, no botão ao lado.
-  { rotulo: "off-scope → refused", msg: "write me a poem about the sea" },
-  { rotulo: "answers in your language", msg: "¿qué hay en la agenda?" },
-];
+function lerIdioma() {
+  const daUrl = new URLSearchParams(location.search).get("lang");
+  if (daUrl === "en" || daUrl === "pt") return daUrl;
+  try { const salvo = localStorage.getItem("aurora_idioma"); if (salvo === "en" || salvo === "pt") return salvo; } catch {}
+  return "pt";
+}
+let idioma = lerIdioma();
+const t = () => T[idioma];
+
+function aplicarIdioma() {
+  document.documentElement.lang = t().htmlLang;
+  document.title = t().titulo;
+  document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = t()[el.dataset.t]; });
+  document.querySelectorAll("[data-t-html]").forEach((el) => { el.innerHTML = t()[el.dataset.tHtml]; });
+  document.querySelectorAll("[data-t-title]").forEach((el) => { el.title = t()[el.dataset.tTitle]; });
+  $("#idioma").textContent = t().idiomaBotao;
+  $("#chaos").textContent = $("#chaos").getAttribute("aria-pressed") === "true" ? t().chaosLigado : t().chaos;
+  $("#entrada").placeholder = encerrada ? t().placeholderEncerrada : t().placeholder;
+  if (log.querySelector(".vazio") || !log.children.length) log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
+  montarSugestoes();
+}
 
 function bolha(texto, quem) {
   const el = document.createElement("div");
@@ -281,48 +435,69 @@ function usd(v) {
 
 function hora(iso) {
   try {
-    // timeZone fixo: a agenda e da clinica, nao do navegador de quem visita.
-    // Locale en-US porque a INTERFACE e em ingles; o fuso continua o da clinica,
+    // timeZone fixo: a agenda e da clinica, nao do navegador de quem visita,
     // senao um visitante em Berlim leria um horario que nao existe na agenda.
-    return new Date(iso).toLocaleString("en-US", {
+    return new Date(iso).toLocaleString(t().locale, {
       timeZone: "America/Bahia",
       weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
 }
 
+// Conversa encerrada é terminal no servidor. Deixar o campo e os exemplos
+// ativos convidava a mandar mensagem só para receber o mesmo aviso de novo.
+function travar(sim) {
+  encerrada = sim;
+  $("#entrada").disabled = sim;
+  $("#enviar").disabled = sim;
+  document.querySelectorAll("#sugestoes button").forEach((b) => { b.disabled = sim; });
+  $("#entrada").placeholder = sim ? t().placeholderEncerrada : t().placeholder;
+}
+
+let dadosProvas = null;
 async function carregarProvas() {
   try {
     const d = await (await fetch("/api/meta")).json();
     if (!d || !d.testes) return;  // build sem o gerador: a barra fica escondida
-    const chips = [
-      [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
-      [`<b>${d.cobertura_total}%</b> coverage`, "Whole agent"],
-      [`policy <b>${d.cobertura_policy}%</b>`, "Gated at 100% in CI: it is what holds up legally"],
-      [`<b>${esc(d.modelo)}</b>`, "Model answering right now"],
-      [`rules <b>${esc(d.rules_version)}</b>`, "Version of policy/rules.yaml stamped on every decision"],
-      [`rates <b>${esc(d.rates_version)}</b>`, "Version of pricing.yaml stamped on every cost line"],
-    ];
-    const el = $("#provas");
-    el.innerHTML = chips.map(([html, t]) => `<span title="${esc(t)}">${html}</span>`).join("");
-    el.hidden = false;
+    dadosProvas = d;
+    desenharProvas();
   } catch { /* a barra e enfeite: nunca derruba a pagina */ }
+}
+function desenharProvas() {
+  if (!dadosProvas) return;
+  const el = $("#provas");
+  el.innerHTML = t().provas(dadosProvas).map(([html, dica]) => `<span title="${esc(dica)}">${html}</span>`).join("");
+  el.hidden = false;
+}
+
+async function carregarSaude() {
+  try {
+    const d = await (await fetch("/health")).json();
+    const el = $("#agentestatus");
+    el.textContent = { ok: t().agenteOk, indisponivel: t().agenteIndisponivel }[d.agente] || t().agenteSemDados;
+    el.style.color = d.agente === "indisponivel" ? "var(--erro)" : "";
+  } catch {
+    $("#agentestatus").textContent = t().erpSemResposta;
+  }
 }
 
 async function carregarAgenda() {
+  carregarSaude();
   try {
     const r = await fetch("/api/estado");
     const d = await r.json();
-    $("#erpstatus").textContent = d.down ? "down (503)" : "online";
+    $("#erpstatus").textContent = d.down ? t().erpDown : t().erpOnline;
     $("#erpstatus").style.color = d.down ? "var(--erro)" : "";
     const st = d.conversa?.estado || "";
-    $("#estado").textContent = ESTADOS[st] || st;
+    $("#estado").textContent = t().estados[st] || st;
     $("#estado").title = d.conversa?.escalada ? `${st} · ${d.conversa.escalada}` : st;
     $("#chaos").setAttribute("aria-pressed", String(!!d.down));
+    $("#chaos").textContent = d.down ? t().chaosLigado : t().chaos;
+    travar(st === "escalated");
 
     agenda.innerHTML = "";
     if (!d.consultas?.length) {
-      agenda.innerHTML = '<tr><td colspan="4" class="vazio">no appointments</td></tr>';
+      agenda.innerHTML = `<tr><td colspan="4" class="vazio">${esc(t().semConsultas)}</td></tr>`;
       return;
     }
     const novo = new Map();
@@ -331,28 +506,37 @@ async function carregarAgenda() {
       const mudou = ultimoEstadoAgenda.size && ultimoEstadoAgenda.get(c.id) !== c.inicio + c.status;
       const tr = document.createElement("tr");
       tr.className = (c.status === "cancelada" ? "cancelada " : "") + (mudou ? "mudou" : "");
-      // Vaga aberta vem com paciente_nome vazio, e vazio na coluna "Patient"
+      // Vaga aberta vem com paciente_nome vazio, e vazio na coluna "Paciente"
       // lia como consulta que perdeu o nome. Ela não perdeu: não tem titular.
       const paciente = c.paciente_nome
         ? esc(c.paciente_nome)
-        : `<span style="color:var(--txt3)">open slot</span>`;
+        : `<span style="color:var(--txt3)">${esc(t().vagaAberta)}</span>`;
       tr.innerHTML = `<td style="font-family:var(--mono);font-size:12px">${esc(c.id)}</td>
         <td>${paciente}</td><td>${esc(c.profissional_nome)}</td><td>${esc(hora(c.inicio))}</td>`;
       agenda.appendChild(tr);
     }
     ultimoEstadoAgenda = novo;
   } catch {
-    $("#erpstatus").textContent = "no response";
+    $("#erpstatus").textContent = t().erpSemResposta;
   }
 }
 
+function mensagemHttp(status, motivo) {
+  if (status === 409) return t().ocupado;
+  if (status === 429) return t().muitas;
+  if (status === 400) return t().invalida;
+  if (status === 503) return motivo === "kill_switch" ? t().pausada : motivo === "teto_diario" ? t().teto : t().indisponivel;
+  return t().indisponivel;
+}
+
 async function enviar(texto) {
+  if (encerrada) return;
   $("#enviar").disabled = true;
   $("#entrada").value = "";
   bolha(texto, "eu");
   const pensando = document.createElement("div");
   pensando.className = "pensando";
-  pensando.textContent = "thinking…";
+  pensando.textContent = t().pensando;
   chat.appendChild(pensando);
   chat.scrollTop = chat.scrollHeight;
 
@@ -360,12 +544,11 @@ async function enviar(texto) {
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mensagem: texto }),
+      body: JSON.stringify({ mensagem: texto, idioma }),
     });
     if (!r.ok) {
-      const detalhe = await r.json().catch(() => ({}));
       pensando.remove();
-      bolha(typeof detalhe.detail === "string" ? detalhe.detail : "This demo is unavailable right now.", "sistema");
+      bolha(mensagemHttp(r.status, r.headers.get("X-Aurora-Motivo")), "sistema");
       return;
     }
 
@@ -387,124 +570,135 @@ async function enviar(texto) {
       }
     }
   } catch {
-    bolha("Lost the connection. Try again.", "sistema");
+    pensando.remove();
+    bolha(t().semConexao, "sistema");
   } finally {
-    $("#enviar").disabled = false;
+    if (!encerrada) $("#enviar").disabled = false;
     carregarAgenda();
   }
 }
 
 function renderizar(tipo, d) {
+  const L = t().log;
   switch (tipo) {
     case "message":
       bolha(d.texto, "ela");
       break;
     case "state":
-      $("#estado").textContent = ESTADOS[d.estado] || d.estado;
+      $("#estado").textContent = t().estados[d.estado] || d.estado;
       $("#estado").title = d.estado + (d.motivo ? " · " + d.motivo : "");
       break;
     case "tool_call":
-      evento(d.scope === "write" ? "tool · write" : "tool · read",
+      evento(d.scope === "write" ? L.escrita : L.leitura,
         `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.input))}`);
       break;
     case "confirmation_required":
-      // A linha que faltava. Sem ela o log mostrava a MESMA escrita duas vezes
-      // (a barrada e a executada) sem nada explicando a diferença, e o gate —
-      // que é a garantia central desta demo — não aparecia em lugar nenhum.
-      evento("gate · held",
-        `<b>${esc(d.tool)}</b> not executed: waiting for the person to confirm`,
-        "negado");
+      // Sem esta linha o log mostrava a MESMA escrita duas vezes (a barrada e
+      // a executada) sem nada explicando a diferença.
+      evento(L.gate, L.gateTexto(esc(d.tool)), "negado");
       break;
     case "policy":
-      // A VERSÃO da política entra na linha junto com o código da regra. É o
-      // que sustenta a afirmação de que, meses depois, dá para provar sob qual
-      // versão da regra a decisão foi tomada — o backend já mandava
-      // `rules_version` no evento e a UI simplesmente descartava.
-      //
-      // O reason_code só entra quando ACRESCENTA: quando a decisão é permitir,
-      // ele vale literalmente "allowed" e a linha saía "allowed · allowed".
-      evento("policy",
-        `<b>${esc(d.regra)}</b> → ${d.allowed ? "allowed" : `refused · <b>${esc(d.reason_code)}</b>`}`
-          + (d.rules_version ? ` <span class="versao">policy ${esc(d.rules_version)}</span>` : ""),
+      evento(L.regra,
+        `<b>${esc(d.regra)}</b> → ${d.allowed ? L.permitida : `${L.recusada} · <b>${esc(d.reason_code)}</b>`}`
+          + (d.rules_version ? ` <span class="versao">${L.versaoRegra} ${esc(d.rules_version)}</span>` : ""),
         d.allowed ? "permitido" : "negado");
       break;
     case "usage": {
-      // Custo e latencia de cada chamada paga, com a VERSAO DA TABELA do lado,
-      // pelo mesmo motivo que a linha de policy carrega a versao da regra: um
-      // numero de dinheiro sem a tarifa que o produziu nao da para auditar.
-      //
       // `cache read` fica visivel porque e o numero que denuncia invalidador
-      // silencioso. Um prefixo que deveria cachear e nunca le esta mudando de
-      // bytes sem ninguem perceber — foi exatamente assim que o gate de
-      // confirmacao apareceu matando o proprio cache.
-      const cache = d.cache_hit
-        ? `cache read ${d.cache_read_tokens.toLocaleString("en-US")}`
-        : "no cache read";
-      evento("llm",
+      // silencioso de prefixo.
+      const cache = d.cache_hit ? L.cacheLido(d.cache_read_tokens.toLocaleString(t().locale)) : L.semCache;
+      evento(L.llm,
         `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms · <b>${usd(d.usd_turno)}</b> · ${cache}`
-          + (d.rates_version ? ` <span class="versao">rates ${esc(d.rates_version)}</span>` : ""),
+          + (d.rates_version ? ` <span class="versao">${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
         d.cache_hit ? "medida" : "medida semcache");
       $("#gasto").textContent = usd(d.usd_conversa);
       break;
     }
     case "write":
-      evento("written", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
+      evento(L.gravado, `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
       break;
     case "tool_result":
-      evento("result", `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado).slice(0, 220))}`);
+      evento(L.resultado, `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado).slice(0, 220))}`);
       break;
     case "tool_error":
-      evento("failed", `<b>${esc(d.tool)}</b> · ${esc(d.code)}`, "erro");
+      evento(L.falhou, `<b>${esc(d.tool)}</b> · ${esc(d.code)}`, "erro");
       break;
-    case "escalated":
-      evento("escalated", `handed to a human · <b>${esc(d.motivo)}</b>`, "erro");
-      bolha("This conversation was handed to a human. Click Restart to try again.", "sistema");
+    case "provider_error":
+      // Falha do provedor não encerra a conversa: o turno foi desfeito no
+      // servidor, ou a escrita já feita foi mantida e é isso que se diz.
+      evento(L.provedor, L.provedorTexto(esc(d.codigo), d.escrita_feita), "erro");
+      bolha(d.escrita_feita ? t().provedorFalhouDepoisDeGravar : t().provedorFalhou, "sistema");
       break;
+    case "escalated": {
+      const motivo = t().motivos[d.motivo] || d.motivo;
+      evento(L.encerrada, `<b>${esc(d.motivo)}</b> · ${L.simulado}`, "erro");
+      if (!encerrada) bolha(t().encerrada(motivo), "sistema");
+      travar(true);
+      break;
+    }
     case "error":
-      bolha(d.mensagem, "sistema");
+      bolha(d.codigo === "agent_internal_error" ? t().erroInterno : t().indisponivel, "sistema");
       break;
     case "done":
-      // Um turno pode terminar sem nenhuma chamada paga — conversa ja escalada,
-      // por exemplo. Sem isto o total ficaria parado no valor do turno anterior.
+      // Um turno pode terminar sem nenhuma chamada paga. Sem isto o total
+      // ficaria parado no valor do turno anterior.
       if (d.usd_conversa !== undefined) $("#gasto").textContent = usd(d.usd_conversa);
       break;
   }
 }
 
+function montarSugestoes() {
+  const caixa = $("#sugestoes");
+  caixa.innerHTML = "";
+  // Cada exemplo diz o que ele PROVA e o que deve acontecer, inclusive a etapa
+  // de confirmação antes de uma escrita. Sem isso a recusa por regra lia como
+  // o bot falhando.
+  for (const s of t().sugestoes) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<span class="rotulo">${esc(s.rotulo)}</span>${esc(s.msg)}<span class="efeito">${esc(s.efeito)}</span>`;
+    b.disabled = encerrada;
+    b.addEventListener("click", () => enviar(s.msg));
+    caixa.appendChild(b);
+  }
+}
+
 $("#form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const t = $("#entrada").value.trim();
-  if (t) enviar(t);
+  const texto = $("#entrada").value.trim();
+  if (texto) enviar(texto);
 });
 
 $("#chaos").addEventListener("click", async () => {
   const ligar = $("#chaos").getAttribute("aria-pressed") !== "true";
   await fetch(`/api/chaos?ligado=${ligar}`, { method: "POST" });
   await carregarAgenda();
-  bolha(ligar
-    ? "The ERP is down for this session. Ask for a change and watch what the agent does."
-    : "The ERP is back.", "sistema");
+  bolha(ligar ? t().erpCaiu : t().erpVoltou, "sistema");
 });
 
 $("#reset").addEventListener("click", async () => {
   await fetch("/api/reset", { method: "POST" });
   chat.innerHTML = "";
-  log.innerHTML = '<p class="vazio">Every tool call, every policy decision and every write shows up here, with the code of the rule that decided it.</p>';
+  log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
   ultimoEstadoAgenda = new Map();
-  // O total e POR CONVERSA, e o reset comeca uma conversa nova: deixar o valor
-  // antigo na tela faria o proximo turno parecer mais caro do que foi.
+  // O total e POR CONVERSA, e o reset comeca uma conversa nova.
   $("#gasto").textContent = usd(0);
-  bolha("Schedule and conversation restarted.", "sistema");
+  travar(false);
+  bolha(t().saudacao, "ela");
+  bolha(t().reiniciada, "sistema");
   carregarAgenda();
 });
 
-for (const s of SUGESTOES) {
-  const b = document.createElement("button");
-  b.innerHTML = `<span class="rotulo">${esc(s.rotulo)}</span>${esc(s.msg)}`;
-  b.addEventListener("click", () => enviar(s.msg));
-  $("#sugestoes").appendChild(b);
-}
+$("#idioma").addEventListener("click", () => {
+  idioma = idioma === "pt" ? "en" : "pt";
+  try { localStorage.setItem("aurora_idioma", idioma); } catch {}
+  aplicarIdioma();
+  desenharProvas();
+  carregarAgenda();
+});
 
+aplicarIdioma();
+bolha(t().saudacao, "ela");
 carregarAgenda();
 carregarProvas();
 </script>
