@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Space+Grotesk:wght@500;600&display=block" rel="stylesheet">
+<style>
+  /* Imagem de compartilhamento da Aurora, 1200x630. Os dois recortes à direita
+     são da página em produção depois de uma conversa real (painel.png, 2x):
+     a agenda com a linha gravada e o card "gravado" do registro. */
+  :root{
+    --fundo:#14120e; --superficie:#1d1a14; --tinta:#f4f2ed; --tinta-2:#c9c2b3; --tinta-3:#9c9484;
+    --linha:#322d24; --realce:#e8703a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px;overflow:hidden}
+  body{background:var(--fundo);color:var(--tinta);font-family:"IBM Plex Sans",sans-serif;position:relative}
+  .grao{position:absolute;inset:0;opacity:.06;mix-blend-mode:screen;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .esq{position:absolute;left:72px;top:64px;bottom:60px;width:520px;display:flex;flex-direction:column}
+  .marca{font-family:"Space Grotesk";font-weight:600;font-size:30px;letter-spacing:-.04em;display:flex;align-items:baseline;gap:12px}
+  .marca .o{color:var(--realce)}
+  .marca .suf{font-family:"IBM Plex Sans";font-weight:400;font-size:19px;letter-spacing:0;color:var(--tinta-3)}
+  h1{margin-top:auto;font-family:"Space Grotesk";font-weight:600;font-size:66px;line-height:.97;letter-spacing:-.04em;max-width:11ch}
+  .sub{margin-top:22px;font-size:21px;line-height:1.45;color:var(--tinta-2);max-width:25ch}
+  .rodape{margin-top:auto;font-family:"IBM Plex Mono";font-size:17px;color:var(--tinta-3)}
+  .dir{position:absolute;left:640px;top:96px;width:620px;
+    background:color-mix(in oklab,var(--tinta) 4%,transparent);border:1px solid color-mix(in oklab,var(--tinta) 8%,transparent);
+    border-radius:28px 0 0 28px;padding:6px 0 6px 6px}
+  .nucleo{background:var(--superficie);border-radius:22px 0 0 22px;overflow:hidden;
+    box-shadow:inset 0 1px 0 color-mix(in oklab,white 7%,transparent)}
+  .recorte{background-image:url("painel.png");background-size:1056px auto;background-repeat:no-repeat}
+  /* A linha de madrugada da seed (ancorada no relógio para o preset da regra de
+     24 h) fica de fora do recorte: a vitrine mostra o cabeçalho e as duas
+     consultas do dia útil, com a gravada marcada. */
+  .agenda-topo{width:614px;height:101px;background-position:-500px -67px}
+  .agenda-linhas{width:614px;height:132px;background-position:-500px -210px}
+  .gravado{width:614px;height:136px;background-position:-506px -600px;border-top:1px solid var(--linha)}
+  .gravado-wrap{padding:14px 0 18px 0}
+</style>
+</head>
+<body>
+  <div class="esq">
+    <div class="marca"><span>Gomi<span class="o">o</span></span><span class="suf">demo de operações</span></div>
+    <h1>Ela grava na agenda. Ou diz por que não.</h1>
+    <p class="sub">Clínica fictícia, ERP de verdade. Converse e veja a linha mudar.</p>
+    <p class="rodape">aurora.pgdev.com.br</p>
+  </div>
+  <div class="dir">
+    <div class="nucleo">
+      <div class="recorte agenda-topo"></div>
+      <div class="recorte agenda-linhas"></div>
+      <div class="recorte gravado"></div>
+    </div>
+  </div>
+</body>
+</html>
