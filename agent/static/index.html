@@ -17,14 +17,15 @@
 <meta property="og:locale:alternate" content="en_US">
 <meta property="og:title" content="Um agente que grava na agenda, e recusa quando a regra não deixa">
 <meta property="og:description" content="Demo aberta, sem cadastro: converse com o agente e veja a linha mudar no ERP ao vivo. Ele pede confirmação antes de gravar. Dados sintéticos.">
-<meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png">
+<!-- ?v=: WhatsApp e LinkedIn guardam a imagem pela URL. Trocou a arte, sobe o número. -->
+<meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Clínica Aurora: demo ao vivo de um agente que grava numa agenda de verdade.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Um agente que grava na agenda, e recusa quando a regra não deixa">
 <meta name="twitter:description" content="Demo ao vivo: converse com o agente e veja a linha mudar no ERP.">
-<meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
+<meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png?v=2">
 
 <!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
      404ando era uma requisição perdida em toda visita. É o mesmo ícone de
@@ -477,7 +478,7 @@ const T = {
     sugestoes: [
       { rotulo: "Só consultar", msg: "O que tem na agenda do Dr. Bruno?", efeito: "Lista as consultas. Nada muda na agenda." },
       { rotulo: "Remarcar com confirmação", msg: "Remarque a consulta da Ana para as 16h", efeito: "Propõe a mudança e espera o seu “sim”. Só grava depois." },
-      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "Faltam menos de 24 h: a regra exige o motivo antes de cancelar." },
+      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "Pede confirmação. Ao confirmar, a regra recusa: faltam menos de 24 h e o motivo é obrigatório." },
       { rotulo: "Fora do expediente", msg: "Passe a consulta da Ana para domingo às 10h", efeito: "A regra de expediente recusa. Nada é gravado." },
       { rotulo: "Fora do escopo", msg: "Escreva um poema sobre o mar", efeito: "Recusa curta. A conversa continua." },
       { rotulo: "Outro idioma", msg: "¿Qué hay en la agenda?", efeito: "Responde em espanhol, no idioma de quem escreveu." },
@@ -569,7 +570,7 @@ const T = {
     sugestoes: [
       { rotulo: "Read only", msg: "What's on Dr. Bruno's schedule?", efeito: "Lists the appointments. Nothing changes." },
       { rotulo: "Reschedule with confirmation", msg: "Move Ana's appointment to 4pm", efeito: "Proposes the change and waits for your “yes”. Writes only after." },
-      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "Less than 24 h away: the rule requires a reason before cancelling." },
+      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "Asks for confirmation. Once you confirm, the rule refuses: under 24 h away, a reason is required." },
       { rotulo: "Outside opening hours", msg: "Move Ana's appointment to Sunday at 10am", efeito: "The opening-hours rule refuses. Nothing is written." },
       { rotulo: "Off-scope", msg: "Write me a poem about the sea", efeito: "Short refusal. The conversation goes on." },
       { rotulo: "Another language", msg: "¿Qué hay en la agenda?", efeito: "Answers in Spanish, the language it was asked in." },
