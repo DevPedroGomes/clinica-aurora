@@ -6,6 +6,7 @@
 <title>Clínica Aurora: um agente que grava numa agenda de verdade</title>
 <meta name="description" content="Demo ao vivo: um agente de IA que grava numa agenda de verdade, pede confirmação antes de alterar e recusa quando a regra da clínica não permite. O ERP em que ele grava é publicado ao lado.">
 <meta name="author" content="Gomio">
+<meta name="theme-color" content="#14120e">
 
 <!-- Sem estas tags o link vira URL crua no LinkedIn, no WhatsApp e no Upwork —
      que é justamente onde ele é compartilhado. og:image precisa ser absoluta. -->
@@ -26,199 +27,406 @@
 <meta name="twitter:image" content="https://aurora.pgdev.com.br/static/og.png">
 
 <!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
-     404ando era uma requisição perdida em toda visita. -->
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2360a5fa'/><rect x='11.5' y='11.5' width='9' height='9' rx='2' fill='%230a0a0a' transform='rotate(45 16 16)'/></svg>">
+     404ando era uma requisição perdida em toda visita. É o mesmo ícone de
+     gomio.com.br: a demo é da Gomio, não de uma marca à parte. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2314120E'/><circle cx='16' cy='16' r='6.5' fill='none' stroke='%23B24A18' stroke-width='3'/></svg>">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
 <style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  /* Tokens do tema escuro de gomio.com.br (src/app/globals.css), copiados por
+     valor. A demo é uma página da Gomio: mesma tinta, mesmo acento, mesmas
+     fontes, mesma moldura. A estrutura (conversa de um lado, decisões do outro,
+     sem balão) é a do voice-demo, que é a outra demo da casa.
+     Um acento só. Gravação, recusa e erro se distinguem por preenchimento, peso
+     e texto, nunca por uma segunda cor. */
   :root{
-    --bg:#0a0a0a; --painel:rgba(255,255,255,.045); --linha:rgba(255,255,255,.09);
-    --txt:#fff; --txt2:rgba(255,255,255,.58); --txt3:rgba(255,255,255,.38);
-    --azul:#60a5fa; --ok:#4ade80; --nao:#fbbf24; --erro:#f87171;
-    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --fundo:#14120e; --superficie:#1d1a14; --superficie-2:#272219;
+    --tinta:#f4f2ed; --tinta-2:#c9c2b3; --tinta-3:#9c9484;
+    --linha:#322d24; --linha-forte:#443d31;
+    --realce:#e8703a; --realce-forte:#f29063; --realce-lavado:#2b1d14;
+    --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+    --texto:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    /* Raio concêntrico: o núcleo é a caixa menos o respiro da moldura. */
+    --r-caixa:28px; --r-nucleo:22px; --r-md:14px; --r-sm:10px;
+    --ease:cubic-bezier(.16,1,.3,1);
+    --envelope:1120px;
+    color-scheme:dark;
   }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
   body{
-    font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
-    background:var(--bg);color:var(--txt);min-height:100vh;
+    font-family:var(--texto);font-size:15px;line-height:1.6;
+    background:var(--fundo);color:var(--tinta);min-height:100dvh;
     -webkit-font-smoothing:antialiased;
   }
-  a{color:var(--azul)}
-  .topo{
-    display:flex;align-items:center;justify-content:space-between;gap:1rem;
-    padding:.85rem 1.25rem;border-bottom:1px solid var(--linha);
-    background:rgba(255,255,255,.03);backdrop-filter:blur(12px);
-    position:sticky;top:0;z-index:10;flex-wrap:wrap;
-  }
-  .marca{display:flex;align-items:center;gap:.6rem;font-weight:600;letter-spacing:-.02em}
-  .marca span.dot{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#60a5fa,#7dd3fc);display:grid;place-items:center}
-  .marca span.dot i{width:7px;height:7px;border-radius:2px;background:#0a0a0a;transform:rotate(45deg);display:block}
-  .por{font-weight:400;font-size:12px;color:var(--txt3);letter-spacing:0;padding-left:.6rem;border-left:1px solid var(--linha)}
-  .por a{color:var(--txt2);text-decoration:none;border-bottom:1px solid rgba(255,255,255,.22)}
-  .por a:hover{color:var(--txt);border-bottom-color:var(--azul)}
-  @media (max-width:560px){.por{padding-left:0;border-left:0;flex-basis:100%}}
-  .aviso{font-size:12px;color:var(--txt3);max-width:52ch;line-height:1.5}
-  .acoes{display:flex;gap:.5rem;flex-wrap:wrap}
-  button{font:inherit;cursor:pointer;border:1px solid var(--linha);background:var(--painel);color:var(--txt);
-    border-radius:999px;padding:.45rem .9rem;font-size:12.5px;transition:.2s}
-  button:hover:not(:disabled){background:rgba(255,255,255,.09)}
-  button:disabled{opacity:.45;cursor:not-allowed}
-  button.perigo[aria-pressed="true"]{border-color:rgba(248,113,113,.55);background:rgba(248,113,113,.14);color:#fecaca}
+  h1,h2{font-family:var(--display);font-weight:600;letter-spacing:-.035em;line-height:.98;text-wrap:balance}
+  p{text-wrap:pretty}
+  a{color:inherit}
+  button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+  button:disabled{cursor:not-allowed}
+  /* O anel segue o raio do próprio elemento: pílula continua pílula no foco. */
+  :focus-visible{outline:2px solid var(--realce);outline-offset:3px}
+  ::selection{background:var(--realce-lavado);color:var(--realce-forte)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  /* Rótulo micro: só onde há dado por baixo (quem falou, nome de coluna, nome
+     de campo). Não é sobrancelha de seção. */
+  .micro{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tinta-3)}
+  .envelope{--pad:20px;width:100%;max-width:var(--envelope);margin:0 auto;padding:0 var(--pad)}
+  @media (min-width:768px){.envelope{--pad:32px}}
+  /* Fio de seção na largura do conteúdo, não da caixa com o respiro. */
+  .fio-topo{background:linear-gradient(var(--linha),var(--linha)) top center/calc(100% - 2 * var(--pad)) 1px no-repeat}
 
-  .tela{display:grid;grid-template-columns:1fr 1fr;gap:0;height:calc(100vh - 57px)}
-  @media (max-width:940px){.tela{grid-template-columns:1fr;height:auto}}
-  .col{display:flex;flex-direction:column;min-height:0}
+  /* Grão igual ao do site: quebra a chapa digital sem custar repintura. */
+  .grao{position:fixed;inset:0;z-index:50;pointer-events:none;opacity:.05;mix-blend-mode:screen;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+  /* ---------- Ilha de navegação (a mesma forma do header de gomio.com.br) */
+  .ilha-wrap{position:sticky;top:0;z-index:40;padding:14px 16px 0;pointer-events:none}
+  .ilha{pointer-events:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;
+    max-width:var(--envelope);height:60px;margin:0 auto;padding:0 10px 0 22px;border:1px solid var(--linha);
+    border-radius:999px;background:color-mix(in oklab,var(--fundo) 82%,transparent);backdrop-filter:blur(20px)}
+  .marca{font-family:var(--display);font-size:19px;font-weight:600;letter-spacing:-.04em;text-decoration:none;
+    display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+  .marca .o{color:var(--realce)}
+  .marca .suf{font-family:var(--texto);font-size:13.5px;font-weight:400;letter-spacing:0;color:var(--tinta-3)}
+  .nav{display:flex;align-items:center;gap:4px}
+  .nav a{font-size:14px;color:var(--tinta-2);text-decoration:none;padding:8px 14px;border-radius:999px;
+    transition:background-color .3s var(--ease),color .3s var(--ease)}
+  .nav a:hover{background:var(--realce-lavado);color:var(--tinta)}
+  @media (max-width:720px){.nav a{display:none}.marca .suf{display:none}}
+
+  /* ---------- Botões: pílula, um sólido por tela, o resto em contorno */
+  .pilula{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;
+    border:1px solid var(--linha-forte);border-radius:999px;padding:7px 14px;font-size:13px;color:var(--tinta-2);
+    transition:border-color .3s var(--ease),color .3s var(--ease),background-color .3s var(--ease),transform .2s var(--ease)}
+  .pilula:hover:not(:disabled){border-color:var(--realce);color:var(--tinta)}
+  .pilula:active:not(:disabled){transform:scale(.98)}
+  .pilula:disabled{opacity:.4}
+  .pilula.perigo[aria-pressed="true"]{border-color:var(--realce);background:var(--realce-lavado);color:var(--realce-forte)}
+  .solido{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:999px;
+    background:var(--tinta);color:var(--fundo);font-weight:500;padding:11px 22px;font-size:14.5px;text-decoration:none;
+    transition:background-color .4s var(--ease),transform .2s var(--ease)}
+  .solido:hover:not(:disabled){background:var(--realce)}
+  .solido:active:not(:disabled){transform:scale(.98)}
+  .solido:disabled{opacity:.4}
+
+  /* ---------- Hero: headline curta, texto sob ela, o painel logo abaixo */
+  .hero{padding-top:44px;padding-bottom:28px}
+  .hero h1{font-size:clamp(2.1rem,4.6vw,3.5rem);max-width:21ch}
+  .hero p{margin-top:16px;max-width:58ch;font-size:16.5px;color:var(--tinta-2)}
+  .hero p a{color:var(--tinta);text-decoration-color:var(--linha-forte);text-underline-offset:3px}
+  .hero p a:hover{text-decoration-color:var(--realce)}
+
+  /* ---------- Moldura do painel: bezel + núcleo, como os cards do site */
+  .bezel{background:color-mix(in oklab,var(--tinta) 4%,transparent);
+    border:1px solid color-mix(in oklab,var(--tinta) 8%,transparent);border-radius:var(--r-caixa);padding:6px}
+  .console{background:var(--superficie);border-radius:var(--r-nucleo);overflow:hidden;
+    box-shadow:inset 0 1px 0 color-mix(in oklab,white 7%,transparent);
+    display:grid;grid-template-rows:auto minmax(0,1fr);height:clamp(600px,calc(100dvh - 96px),820px)}
+  /* Na primeira interação o painel inteiro rola para a vista, logo abaixo da ilha. */
+  .painel-envelope{scroll-margin-top:84px}
+  .faixa{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:12px 14px 12px 20px;border-bottom:1px solid var(--linha)}
+  .negocio{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .negocio strong{font-family:var(--display);font-weight:500;font-size:17px;letter-spacing:-.02em}
+  .ficticia{font-size:12px;color:var(--tinta-3);border:1px solid var(--linha);border-radius:999px;padding:2px 10px}
+  .faixa-dir{display:flex;align-items:center;gap:12px}
+  .estado{font-size:12.5px;color:var(--tinta-3)}
+  .estado:not(:empty)::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--tinta-3);margin-right:8px;vertical-align:1px}
+  .estado.aguardando::before{background:var(--realce)}
+  .corpo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);min-height:0}
+  /* min-width:0: sem isto a tabela, que não quebra linha, alarga a coluna e
+     empurra o painel para fora da tela no celular. */
+  .col{display:flex;flex-direction:column;min-height:0;min-width:0}
   .col+.col{border-left:1px solid var(--linha)}
-  @media (max-width:940px){.col+.col{border-left:0;border-top:1px solid var(--linha)}}
-  .cabeca{padding:.7rem 1.1rem;border-bottom:1px solid var(--linha);font-size:11px;
-    text-transform:uppercase;letter-spacing:.18em;color:var(--txt3);display:flex;justify-content:space-between;gap:1rem}
+  .cabeca{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;
+    padding:10px 20px;border-bottom:1px solid var(--linha);background:color-mix(in oklab,var(--tinta) 2.5%,transparent)}
+  .cabeca .micro{white-space:nowrap}
+  .cabeca .dir{display:flex;align-items:center;gap:14px;font-size:12.5px;color:var(--tinta-3);white-space:nowrap}
+  .cabeca b{font-weight:500;color:var(--tinta-2)}
+  .cabeca b.alerta{color:var(--realce-forte)}
 
-  .chat{flex:1;overflow-y:auto;padding:1.1rem;display:flex;flex-direction:column;gap:.7rem;min-height:340px}
-  .bolha{max-width:82%;padding:.65rem .9rem;border-radius:14px;font-size:14px;line-height:1.55;white-space:pre-wrap}
-  .eu{align-self:flex-end;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.28)}
-  .ela{align-self:flex-start;background:var(--painel);border:1px solid var(--linha)}
-  .sistema{align-self:center;font-size:12px;color:var(--txt3);text-align:center;max-width:90%}
-  .pensando{align-self:flex-start;color:var(--txt3);font-size:13px}
+  /* ---------- Conversa: sem balão. Quem fala em rótulo micro, a fala do
+     agente com um fio à esquerda, como no voice-demo. */
+  .chat{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}
+  .fala{display:flex;flex-direction:column;gap:5px;animation:entra .45s var(--ease)}
+  .fala p{white-space:pre-wrap;font-size:15px;line-height:1.6;max-width:62ch}
+  .fala.eu p{color:var(--tinta)}
+  .fala.ela p{color:var(--tinta-2);border-left:2px solid var(--linha-forte);padding-left:14px}
+  /* O que o exemplo deve provar, dito ANTES da resposta chegar: é o que evita
+     ler a recusa por regra como bot falhando. */
+  .esperado{font-size:12.5px;color:var(--tinta-3);line-height:1.5}
+  .esperado b{font-weight:500;color:var(--tinta-2)}
+  .sistema{font-size:13px;line-height:1.55;color:var(--tinta-2);border-left:2px solid var(--realce);
+    background:var(--realce-lavado);padding:10px 14px;border-radius:0 var(--r-sm) var(--r-sm) 0;
+    animation:entra .45s var(--ease)}
+  .sistema.neutro{border-left-color:var(--linha-forte);background:transparent;color:var(--tinta-3);padding:2px 14px}
+  .pensando{font-size:13px;color:var(--tinta-3)}
 
-  .sugestoes{display:flex;flex-wrap:wrap;gap:.4rem;padding:0 1.1rem .7rem}
-  .sugestoes button{font-size:12px;padding:.35rem .7rem;display:flex;flex-direction:column;
-    align-items:flex-start;gap:.15rem;text-align:left;line-height:1.25}
-  /* O rótulo diz o que o botão PROVA; a mensagem em si fica secundária. Sem
-     isso o visitante clica na recusa por política e pode ler como bot falhando. */
-  .sugestoes .rotulo{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;
-    color:var(--txt3);font-weight:600}
-  /* O resultado esperado, em uma linha: é o que evita ler a recusa como falha. */
-  .sugestoes .efeito{font-size:10.5px;color:var(--txt3);max-width:30ch}
-  .sugestoes button{border-radius:12px}
+  .cenarios{padding:14px 20px 14px;border-bottom:1px solid var(--linha)}
+  .cenarios p{font-size:12.5px;color:var(--tinta-3);margin-bottom:10px}
+  .sugestoes{display:flex;flex-wrap:wrap;gap:6px}
+  .sugestoes .pilula{padding:6px 12px;font-size:12.5px}
+  .barra{display:flex;gap:8px;padding:12px 20px 18px;border-top:1px solid var(--linha)}
+  .barra input{flex:1;min-width:0;background:var(--fundo);border:1px solid var(--linha-forte);color:var(--tinta);
+    border-radius:999px;padding:11px 18px;font:inherit;font-size:15px;transition:border-color .3s var(--ease)}
+  .barra input::placeholder{color:var(--tinta-3)}
+  .barra input:focus{outline:none;border-color:var(--realce)}
   .barra input:disabled{opacity:.5}
+
+  /* ---------- Agenda no ERP */
+  .agenda-painel{flex:0 0 auto;max-height:46%;display:flex;flex-direction:column;min-height:0}
+  .rolagem{overflow:auto;padding:4px 20px 14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:10px 10px 8px;border-bottom:1px solid var(--linha);white-space:nowrap}
+  td{padding:10px;border-bottom:1px solid color-mix(in oklab,var(--linha) 60%,transparent);color:var(--tinta-2);white-space:nowrap}
+  td:first-child,th:first-child{padding-left:12px}
+  td.id,td.hora{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+  td .vaga{color:var(--tinta-3)}
+  tr.cancelada td{color:var(--tinta-3);text-decoration:line-through;text-decoration-color:var(--linha-forte)}
+  /* A peça que a página inteira existe para mostrar: a linha que mudou no ERP.
+     Fica marcada até a próxima gravação, e o clarão é só de opacidade. */
+  tr.mudou td{background:var(--realce-lavado);color:var(--tinta);position:relative}
+  tr.mudou td:first-child{box-shadow:inset 2px 0 0 var(--realce)}
+  tr.mudou td.hora{color:var(--realce-forte)}
+  tr.mudou td::after{content:"";position:absolute;inset:0;background:var(--realce);opacity:0;pointer-events:none;
+    animation:clarao 1.4s var(--ease)}
+  tr.sem-clarao td::after{animation:none}
+  .erp-nota{padding:0 20px 14px;font-size:12px;color:var(--tinta-3)}
+  .erp-nota a{color:var(--tinta-2);text-underline-offset:3px;text-decoration-color:var(--linha-forte)}
+  .erp-nota a:hover{text-decoration-color:var(--realce)}
+
+  /* ---------- Registro de decisões */
+  .log-painel{flex:1;display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--linha)}
+  .log{flex:1;overflow-y:auto;padding:14px 20px 18px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth}
+  .ev{border:1px solid var(--linha);border-radius:var(--r-md);background:var(--fundo);padding:10px 14px;
+    display:flex;flex-direction:column;gap:4px;animation:entra .45s var(--ease)}
+  .ev .tag{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--tinta-3)}
+  .ev .txt{font-family:var(--mono);font-size:12.5px;line-height:1.55;color:var(--tinta-2);word-break:break-word}
+  .ev .txt b{font-weight:500;color:var(--tinta)}
+  /* Gravou: moldura no acento, sem preenchimento. */
+  .ev.write{border-color:color-mix(in oklab,var(--realce) 55%,var(--linha))}
+  .ev.write .tag{color:var(--realce-forte)}
+  /* Barrou (regra, confirmação retida, falha): preenchimento lavado e fio à esquerda. */
+  .ev.negado,.ev.erro{background:var(--realce-lavado);border-color:transparent;box-shadow:inset 2px 0 0 var(--realce)}
+  .ev.negado .tag,.ev.erro .tag{color:var(--realce-forte)}
+  .ev.permitido .tag{color:var(--tinta-2)}
+  /* Custo de chamada: a linha mais discreta de propósito. Ela está em TODA
+     chamada paga, e com o peso das outras esconderia a decisão de política. */
+  .ev.medida{border-style:dashed;background:transparent;padding:7px 14px;opacity:.78}
+  .ev.medida:hover{opacity:1}
+  /* Cache que não leu é o único caso em que a linha de custo chama atenção:
+     é o sinal de invalidador silencioso de prefixo. */
+  .ev.semcache{opacity:1;border-color:color-mix(in oklab,var(--realce) 45%,var(--linha))}
+  .ev.semcache .tag{color:var(--realce-forte)}
   /* Versão da política ao lado do código da regra: é o que prova, meses
      depois, sob qual regra a decisão foi tomada. */
-  .versao{font-size:10px;color:var(--txt3);margin-left:.35rem;white-space:nowrap}
-  .provas{display:flex;flex-wrap:wrap;gap:.3rem .45rem;font-family:var(--mono);font-size:10.5px;
-    margin:.55rem 0 0}
-  .provas span{border:1px solid var(--linha);border-radius:5px;padding:.15rem .45rem;color:var(--txt2);
-    background:rgba(255,255,255,.03)}
-  .provas b{color:var(--txt);font-weight:500}
-  .barra{display:flex;gap:.5rem;padding:.9rem 1.1rem;border-top:1px solid var(--linha)}
-  .barra input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--linha);color:var(--txt);
-    border-radius:10px;padding:.6rem .8rem;font:inherit;font-size:14px}
-  .barra input:focus{outline:none;border-color:rgba(96,165,250,.7)}
-  .barra button{background:linear-gradient(90deg,#60a5fa,#7dd3fc);color:#0a0a0a;font-weight:600;border:none}
+  .versao{color:var(--tinta-3);margin-left:6px;white-space:nowrap}
+  .vazio{font-size:13px;color:var(--tinta-3);max-width:52ch;line-height:1.55}
 
-  .direita{flex:1;overflow-y:auto;padding:1.1rem;display:flex;flex-direction:column;gap:1.1rem}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;font-weight:500;color:var(--txt3);font-size:11px;text-transform:uppercase;
-    letter-spacing:.1em;padding:.45rem .5rem;border-bottom:1px solid var(--linha)}
-  td{padding:.55rem .5rem;border-bottom:1px solid rgba(255,255,255,.05);color:var(--txt2)}
-  tr.cancelada td{opacity:.45;text-decoration:line-through}
-  tr.mudou td{background:rgba(96,165,250,.14);color:#fff}
-  @keyframes pisca{0%{background:rgba(96,165,250,.32)}100%{background:rgba(96,165,250,.14)}}
-  tr.mudou td{animation:pisca 1.1s ease-out}
+  /* ---------- Abaixo do painel */
+  .sob{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px 48px;padding:22px 6px 0}
+  .provas{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start}
+  .provas span{font-family:var(--mono);font-size:12px;color:var(--tinta-3);border:1px solid var(--linha);
+    border-radius:999px;padding:4px 11px;font-variant-numeric:tabular-nums}
+  .provas b{font-weight:500;color:var(--tinta)}
+  .provas-nota{flex-basis:100%;font-size:12.5px;color:var(--tinta-3);margin-top:4px}
+  .limites{font-size:13px;color:var(--tinta-3);line-height:1.65;max-width:62ch}
+  .limites strong{font-weight:500;color:var(--tinta-2)}
 
-  .log{display:flex;flex-direction:column;gap:.4rem;font-family:var(--mono);font-size:12px}
-  .ev{border:1px solid var(--linha);border-radius:9px;padding:.5rem .65rem;background:rgba(255,255,255,.025);
-    display:flex;gap:.55rem;align-items:flex-start;line-height:1.5;word-break:break-word}
-  .ev .tag{flex-shrink:0;font-size:10px;text-transform:uppercase;letter-spacing:.08em;padding:.1rem .4rem;
-    border-radius:4px;background:rgba(255,255,255,.08);color:var(--txt2)}
-  .ev.write .tag{background:rgba(74,222,128,.16);color:var(--ok)}
-  .ev.negado .tag{background:rgba(251,191,36,.16);color:var(--nao)}
-  .ev.erro .tag{background:rgba(248,113,113,.16);color:var(--erro)}
-  .ev.permitido .tag{background:rgba(96,165,250,.16);color:var(--azul)}
-  /* A linha de custo e a mais discreta do log de proposito: ela precisa estar
-     em TODA chamada paga, e com o mesmo peso das outras viraria ruido que
-     esconde a decisao de politica, que e o que o visitante veio ver. */
-  .ev.medida{opacity:.72}
-  .ev.medida .tag{background:rgba(255,255,255,.06);color:var(--txt3)}
-  .ev.medida:hover{opacity:1}
-  /* Cache que nao leu e o unico caso em que a linha de custo GRITA: e o sinal
-     de invalidador silencioso, e foi assim que o bug do gate apareceu. */
-  .ev.semcache{opacity:1}
-  .ev.semcache .tag{background:rgba(251,191,36,.16);color:var(--nao)}
-  .ev b{color:var(--txt);font-weight:500}
-  .vazio{color:var(--txt3);font-size:12.5px;font-family:Inter,sans-serif}
-  .rodape{padding:.8rem 1.1rem;border-top:1px solid var(--linha);font-size:11.5px;color:var(--txt3);line-height:1.6}
-  .assinatura{margin-top:.55rem;padding-top:.55rem;border-top:1px solid rgba(255,255,255,.05);color:var(--txt2)}
-  .assinatura a{color:var(--txt2);text-decoration:none;border-bottom:1px solid rgba(255,255,255,.22)}
-  .assinatura a:hover{color:var(--txt);border-bottom-color:var(--azul)}
+  .fim{margin-top:88px;padding-top:56px;padding-bottom:64px}
+  .fim h2{font-size:clamp(1.75rem,3.2vw,2.5rem);max-width:18ch}
+  .fim p{margin-top:14px;font-size:15.5px;color:var(--tinta-2);max-width:52ch}
+  .fim .acoes{margin-top:28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+  .fim .acoes a.link{font-size:14.5px;color:var(--tinta-2);text-underline-offset:4px;text-decoration-color:var(--linha-forte)}
+  .fim .acoes a.link:hover{color:var(--tinta);text-decoration-color:var(--realce)}
+  .rodape{padding-top:22px;padding-bottom:36px;font-size:13px;color:var(--tinta-3);
+    display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .rodape a{color:var(--tinta-3);text-underline-offset:3px;text-decoration-color:var(--linha)}
+  .rodape a:hover{color:var(--tinta-2)}
+  .rodape nav{display:flex;gap:18px;flex-wrap:wrap}
+
+  @keyframes entra{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @keyframes clarao{from{opacity:.3}to{opacity:0}}
+  @keyframes surge{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  /* O único movimento que não responde a um clique: a página entra uma vez. */
+  .hero,.painel-envelope{animation:surge .8s var(--ease) both}
+  .painel-envelope{animation-delay:.08s}
+
+  /* ---------- Mobile como experiência própria: o painel vira uma pilha, e cada
+     parte ganha altura para ser lida sem rolar dentro de rolagem. */
+  @media (max-width:900px){
+    .console{height:auto}
+    .corpo{grid-template-columns:minmax(0,1fr)}
+    .col+.col{border-left:0;border-top:1px solid var(--linha)}
+    .chat{min-height:300px;max-height:62dvh}
+    .agenda-painel{max-height:none}
+    .log{max-height:60dvh}
+    .sob{grid-template-columns:1fr}
+    .fim{margin-top:64px}
+  }
+  @media (max-width:560px){
+    .hero{padding-top:32px}
+    .faixa{padding:12px 14px}
+    .cabeca{padding:10px 14px;flex-wrap:wrap}
+    .chat,.log{padding-left:14px;padding-right:14px}
+    .cenarios{padding-left:14px;padding-right:14px}
+    .barra{padding:12px 14px 16px}
+    .rolagem{padding:4px 8px 12px}
+    .erp-nota{padding:0 14px 14px}
+    /* No celular a linha vira duas: quem e o id em cima, com quem e quando
+       embaixo. O horário, que é o que muda, fica sempre à vista. */
+    .rolagem{padding:0 14px 10px}
+    thead{display:none}
+    tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;padding:11px 10px;
+      border-bottom:1px solid color-mix(in oklab,var(--linha) 60%,transparent);position:relative}
+    tbody td{border:0;padding:0;white-space:normal}
+    tbody td:first-child{padding-left:0}
+    td.id{grid-column:2;grid-row:1;text-align:right;color:var(--tinta-3)}
+    tbody td:nth-child(2){grid-column:1;grid-row:1;color:var(--tinta)}
+    tbody td:nth-child(3){grid-column:1;grid-row:2;font-size:13px}
+    td.hora{grid-column:2;grid-row:2;text-align:right}
+    td.vazio{grid-column:1/-1}
+    tr.mudou{background:var(--realce-lavado);box-shadow:inset 2px 0 0 var(--realce)}
+    tr.mudou td{background:transparent;position:static}
+    tr.mudou td:first-child{box-shadow:none}
+    tr.mudou td::after{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;animation-delay:0s !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+  }
 </style>
 </head>
 <body>
+<div class="grao" aria-hidden="true"></div>
 
-<header class="topo">
-  <div class="marca">
-    <span class="dot"><i></i></span>
-    Clínica Aurora
+<header class="ilha-wrap">
+  <nav class="ilha" aria-label="Gomio">
     <!-- Quem se impressiona com a demo precisa de um caminho para quem a fez.
          Sem isto a página termina em si mesma. -->
-    <span class="por"><span data-t="por">uma demo de</span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
-  </div>
-  <p class="aviso" data-t-html="aviso"></p>
-  <!-- Barra de provas. Vazia por padrao e preenchida por /api/meta: os numeros
-       sao GERADOS no CI, nunca digitados. Se o build nao rodou o gerador, ela
-       continua invisivel — melhor nao afirmar do que afirmar errado. -->
-  <div class="provas" id="provas" hidden></div>
-  <div class="acoes">
-    <button id="chaos" class="perigo" aria-pressed="false" data-t="chaos"></button>
-    <button id="reset" data-t="reset"></button>
-    <!-- A interface abre em português, que é o público da Gomio. A conversa
-         continua acompanhando o idioma de quem escreve, em qualquer um deles. -->
-    <button id="idioma" aria-label="Language / Idioma"></button>
-  </div>
+    <a class="marca" href="https://gomio.com.br" target="_blank" rel="noopener"><span>Gomi<span class="o">o</span></span><span class="suf" data-t="marcaSuf"></span></a>
+    <div class="nav">
+      <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener" data-t="navErp"></a>
+      <a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="navGomio"></a>
+      <!-- A interface abre em português, que é o público da Gomio. A conversa
+           continua acompanhando o idioma de quem escreve, em qualquer um deles. -->
+      <button id="idioma" class="pilula" type="button" aria-label="Language / Idioma"></button>
+    </div>
+  </nav>
 </header>
 
-<main class="tela">
-  <section class="col">
-    <div class="cabeca"><span data-t="cabecaConversa"></span><span id="estado"></span></div>
-    <div class="chat" id="chat"></div>
-    <div class="sugestoes" id="sugestoes"></div>
-    <form class="barra" id="form">
-      <input id="entrada" autocomplete="off" maxlength="500">
-      <button type="submit" id="enviar" data-t="enviar"></button>
-    </form>
+<main>
+  <section class="hero envelope">
+    <h1 data-t="heroTitulo"></h1>
+    <p data-t-html="heroTexto"></p>
   </section>
 
-  <section class="col">
-    <!-- Dois indicadores, porque são duas coisas. O "online" antigo era só do
-         ERP, e ficou verde durante a queda inteira do assistente. -->
-    <div class="cabeca">
-      <span data-t="cabecaAgenda"></span>
-      <span><span data-t="rotuloErp"></span> <b id="erpstatus">…</b> · <span data-t="rotuloAgente"></span> <b id="agentestatus">…</b></span>
-    </div>
-    <div class="direita">
-      <div>
-        <table>
-          <thead><tr><th data-t="colConsulta"></th><th data-t="colPaciente"></th><th data-t="colProfissional"></th><th data-t="colInicio"></th></tr></thead>
-          <tbody id="agenda"><tr><td colspan="4" class="vazio" data-t="carregando"></td></tr></tbody>
-        </table>
-      </div>
-      <div>
-        <div class="cabeca" style="padding:0 0 .6rem;border:0;display:flex;justify-content:space-between;gap:.5rem">
-          <span data-t="cabecaLog"></span>
-          <!-- O que esta conversa custou de verdade, somando toda chamada paga.
-               Fica ao lado do log porque e a mesma promessa: o que a demo
-               afirma, ela mostra acontecendo. -->
-          <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" style="color:rgba(255,255,255,.75)">$0.00</b></span>
+  <section class="envelope painel-envelope">
+    <div class="bezel">
+      <div class="console">
+        <div class="faixa">
+          <div class="negocio">
+            <strong>Clínica Aurora</strong>
+            <span class="ficticia" data-t="ficticia"></span>
+          </div>
+          <div class="faixa-dir">
+            <span class="estado" id="estado" aria-live="polite"></span>
+            <button id="reset" class="pilula" type="button" data-t="reset"></button>
+          </div>
         </div>
-        <div class="log" id="log"></div>
+
+        <div class="corpo">
+          <section class="col" aria-labelledby="t-conversa">
+            <div class="cabeca"><span class="micro" id="t-conversa" data-t="cabecaConversa"></span></div>
+            <div class="cenarios">
+              <p data-t="cenariosAjuda"></p>
+              <div class="sugestoes" id="sugestoes"></div>
+            </div>
+            <div class="chat" id="chat" aria-live="polite"></div>
+            <form class="barra" id="form">
+              <input id="entrada" autocomplete="off" maxlength="500" aria-labelledby="t-conversa">
+              <button type="submit" id="enviar" class="solido" data-t="enviar"></button>
+            </form>
+          </section>
+
+          <section class="col">
+            <div class="agenda-painel">
+              <!-- Dois indicadores, porque são duas coisas. O "online" antigo era só do
+                   ERP, e ficou verde durante a queda inteira do assistente. -->
+              <div class="cabeca">
+                <span class="micro" data-t="cabecaAgenda"></span>
+                <span class="dir">
+                  <span><span data-t="rotuloErp"></span> <b id="erpstatus">…</b></span>
+                  <span><span data-t="rotuloAgente"></span> <b id="agentestatus">…</b></span>
+                  <button id="chaos" class="pilula perigo" type="button" aria-pressed="false" data-t="chaos"></button>
+                </span>
+              </div>
+              <div class="rolagem">
+                <table>
+                  <thead><tr><th class="micro" data-t="colConsulta"></th><th class="micro" data-t="colPaciente"></th><th class="micro" data-t="colProfissional"></th><th class="micro" data-t="colInicio"></th></tr></thead>
+                  <tbody id="agenda"><tr><td colspan="4" class="vazio" data-t="carregando"></td></tr></tbody>
+                </table>
+              </div>
+              <p class="erp-nota" data-t-html="erpNota"></p>
+            </div>
+
+            <div class="log-painel">
+              <div class="cabeca">
+                <span class="micro" data-t="cabecaLog"></span>
+                <!-- O que esta conversa custou de verdade, somando toda chamada paga.
+                     Fica ao lado do log porque e a mesma promessa: o que a demo
+                     afirma, ela mostra acontecendo. -->
+                <span class="dir">
+                  <span><span data-t="recusasRotulo"></span> <b id="recusas" class="num">0</b></span>
+                  <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" class="num">$0.0000</b></span>
+                </span>
+              </div>
+              <div class="log" id="log" aria-live="polite"></div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
-    <div class="rodape">
-      <span data-t-html="limites"></span>
-      <div class="assinatura">
-        <span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a> ·
-        <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
-      </div>
+
+    <div class="sob">
+      <!-- Barra de provas. Vazia por padrao e preenchida por /api/meta: os numeros
+           sao GERADOS no CI, nunca digitados. Se o build nao rodou o gerador, ela
+           continua invisivel: melhor nao afirmar do que afirmar errado. -->
+      <div class="provas" id="provas" hidden></div>
+      <p class="limites" data-t-html="limites"></p>
+    </div>
+  </section>
+
+  <section class="fim envelope fio-topo">
+    <h2 data-t="fimTitulo"></h2>
+    <p data-t="fimTexto"></p>
+    <div class="acoes">
+      <a class="solido" href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="fimCta"></a>
+      <a class="link" href="https://voz.gomio.com.br" target="_blank" rel="noopener" data-t="outraDemo"></a>
     </div>
   </section>
 </main>
+
+<footer class="rodape envelope fio-topo">
+  <span><span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
+  <nav aria-label="Links">
+    <a href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="linkOperacoes"></a>
+    <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
+    <a href="https://gomio.com.br/privacidade" target="_blank" rel="noopener" data-t="privacidade"></a>
+  </nav>
+</footer>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const chat = $("#chat"), log = $("#log"), agenda = $("#agenda");
 let ultimoEstadoAgenda = new Map();
 let encerrada = false;
+let recusas = 0;
 
 // Textos da interface. Tudo que a TELA diz passa por aqui; o que o MODELO diz
 // segue o idioma de quem escreve, em qualquer língua, e não depende disto.
@@ -226,26 +434,39 @@ const T = {
   pt: {
     htmlLang: "pt-BR", locale: "pt-BR",
     titulo: "Clínica Aurora: um agente que grava numa agenda de verdade",
-    por: "uma demo de",
-    aviso: 'Clínica <strong>fictícia</strong>, com dados sintéticos. A gravação acontece de verdade, por HTTP, num ERP separado que você pode inspecionar: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">documentação técnica da API</a> (em inglês).',
+    marcaSuf: "demo de operações",
+    navErp: "API do ERP", navGomio: "o que a Gomio faz",
+    heroTitulo: "Ela grava na agenda. Ou diz por que não.",
+    heroTexto: 'Converse com a assistente de uma clínica fictícia. A alteração vai por HTTP para um ERP separado, e cada decisão aparece ao lado, com a regra que decidiu.',
+    ficticia: "clínica fictícia, dados sintéticos",
     chaos: "Derrubar o ERP", chaosLigado: "Religar o ERP",
     reset: "Reiniciar", idiomaBotao: "EN",
-    cabecaConversa: "Conversa · recepção da clínica",
+    cabecaConversa: "a conversa",
+    cenariosAjuda: "Escolha um exemplo ou escreva abaixo.",
+    voce: "você", assistente: "assistente", esperado: "Esperado:",
     enviar: "Enviar",
     placeholder: "remarque a consulta da Ana para as 16h",
     placeholderEncerrada: "Conversa encerrada. Clique em Reiniciar.",
-    cabecaAgenda: "Agenda no ERP",
+    cabecaAgenda: "agenda no ERP",
     rotuloErp: "ERP", rotuloAgente: "assistente",
     erpOnline: "no ar", erpDown: "fora do ar (503)", erpSemResposta: "sem resposta",
     agenteOk: "respondendo", agenteIndisponivel: "indisponível", agenteSemDados: "ainda sem uso",
     colConsulta: "Consulta", colPaciente: "Paciente", colProfissional: "Profissional", colInicio: "Início",
     carregando: "carregando…", semConsultas: "nenhuma consulta", vagaAberta: "vaga aberta",
-    cabecaLog: "Log de decisões",
-    gastoRotulo: "esta conversa:",
+    erpNota: 'Este ERP é outro processo, com API pública: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">documentação técnica</a> (em inglês).',
+    cabecaLog: "registro de decisões",
+    recusasRotulo: "recusas",
+    gastoRotulo: "custo",
     gastoTitulo: "Quanto esta conversa custou até agora, pelas tarifas de pricing.yaml",
     logVazio: "Cada consulta à agenda, cada decisão de regra e cada gravação aparece aqui, com o código da regra que decidiu.",
-    limites: '<strong style="color:rgba(255,255,255,.75)">Limites da demo</strong> · sessão anônima com agenda própria e isolada · no máximo 3 alterações por conversa · teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real · botão de desligar geral · nada fica guardado depois da sessão.',
-    feitoPor: "Feito pela", outrosProjetos: "outros projetos",
+    provasNota: "Números gerados no CI desta versão, não digitados.",
+    limites: '<strong>Limites da demo.</strong> Sessão anônima com agenda própria e isolada, no máximo 3 alterações por conversa e teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real. Há um botão de desligar geral, e nada fica guardado depois da sessão.',
+    fimTitulo: "Quer isso na agenda ou no ERP da sua empresa?",
+    fimTexto: "A Gomio monta o fluxo nos sistemas que você já usa. As suas regras decidem, o agente executa, e cada passo fica registrado.",
+    fimCta: "Ver como a Gomio implementa",
+    outraDemo: "Testar a recepcionista que atende telefone",
+    feitoPor: "Demo feita pela", outrosProjetos: "outros projetos",
+    linkOperacoes: "operações", privacidade: "privacidade",
     saudacao: "Oi! Sou a assistente da recepção. Consulto a agenda, remarco, cancelo e abro vagas. Antes de qualquer alteração, eu digo o que vou fazer e espero você confirmar. Pode escrever em qualquer idioma: respondo no seu.",
     pensando: "pensando…",
     estados: {
@@ -285,13 +506,13 @@ const T = {
     erpVoltou: "O ERP voltou. Se a conversa já foi encerrada, clique em Reiniciar.",
     reiniciada: "Agenda e conversa reiniciadas.",
     log: {
-      leitura: "ferramenta · leitura", escrita: "ferramenta · escrita", gate: "confirmação · retida",
+      leitura: "ferramenta · leitura", escrita: "ferramenta · escrita", gate: "confirmação retida",
       gateTexto: (t) => `<b>${t}</b> não executada: esperando a pessoa confirmar`,
       permitida: "permitida", recusada: "recusada", regra: "regra", versaoRegra: "regra",
-      gravado: "gravado", resultado: "resultado", falhou: "falhou", llm: "llm",
+      gravado: "gravado", resultado: "resultado", falhou: "falhou", llm: "chamada ao modelo",
       cacheLido: (n) => `cache lido ${n}`, semCache: "sem leitura de cache", tarifas: "tarifas",
       encerrada: "encerrada", simulado: "encaminhamento simulado",
-      provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b> · ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
+      provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
     },
     provas: (d) => [
       [`<b>${d.testes}</b> testes`, "Passaram no CI antes de a imagem ser construída"],
@@ -305,26 +526,39 @@ const T = {
   en: {
     htmlLang: "en", locale: "en-US",
     titulo: "Clínica Aurora: an agent that writes to a real schedule",
-    por: "a demo by",
-    aviso: 'A <strong>fictional</strong> clinic with synthetic data. The write really happens, over HTTP, against a separate ERP you can inspect: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">API reference</a>.',
+    marcaSuf: "operations demo",
+    navErp: "ERP API", navGomio: "what Gomio does",
+    heroTitulo: "It writes to the schedule. Or says why not.",
+    heroTexto: 'Talk to the assistant of a fictional clinic. The change goes over HTTP to a separate ERP, and every decision shows up alongside, with the rule that made it.',
+    ficticia: "fictional clinic, synthetic data",
     chaos: "Take the ERP down", chaosLigado: "Bring the ERP back",
     reset: "Restart", idiomaBotao: "PT",
-    cabecaConversa: "Conversation · clinic front desk",
+    cabecaConversa: "the conversation",
+    cenariosAjuda: "Pick an example or type below.",
+    voce: "you", assistente: "assistant", esperado: "Expected:",
     enviar: "Send",
     placeholder: "move Ana's appointment to 4pm",
     placeholderEncerrada: "Conversation closed. Click Restart.",
-    cabecaAgenda: "Schedule in the ERP",
+    cabecaAgenda: "ERP schedule",
     rotuloErp: "ERP", rotuloAgente: "assistant",
     erpOnline: "online", erpDown: "down (503)", erpSemResposta: "no response",
     agenteOk: "answering", agenteIndisponivel: "unavailable", agenteSemDados: "not used yet",
     colConsulta: "Appointment", colPaciente: "Patient", colProfissional: "Practitioner", colInicio: "Starts",
     carregando: "loading…", semConsultas: "no appointments", vagaAberta: "open slot",
-    cabecaLog: "Decision log",
-    gastoRotulo: "this conversation:",
+    erpNota: 'This ERP is a separate process with a public API: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">API reference</a>.',
+    cabecaLog: "decision log",
+    recusasRotulo: "refusals",
+    gastoRotulo: "cost",
     gastoTitulo: "What this conversation has cost so far, at the rates in pricing.yaml",
     logVazio: "Every schedule lookup, every policy decision and every write shows up here, with the code of the rule that decided it.",
-    limites: '<strong style="color:rgba(255,255,255,.75)">Demo limits</strong> · anonymous session with its own isolated schedule · max 3 changes per conversation · daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after · kill switch · nothing persists after the session.',
-    feitoPor: "Built by", outrosProjetos: "other projects",
+    provasNota: "Numbers generated in CI for this build, never typed in.",
+    limites: '<strong>Demo limits.</strong> Anonymous session with its own isolated schedule, at most 3 changes per conversation and a daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after. There is a kill switch, and nothing persists after the session.',
+    fimTitulo: "Want this on your company's schedule or ERP?",
+    fimTexto: "Gomio builds the flow into the systems you already use. Your rules decide, the agent executes, and every step is logged.",
+    fimCta: "See how Gomio builds it",
+    outraDemo: "Try the receptionist that answers the phone",
+    feitoPor: "Demo built by", outrosProjetos: "other projects",
+    linkOperacoes: "operations", privacidade: "privacy",
     saudacao: "Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Before any change I tell you what I'm about to do and wait for your confirmation. Write in any language, I'll answer in yours.",
     pensando: "thinking…",
     estados: {
@@ -362,13 +596,13 @@ const T = {
     erpVoltou: "The ERP is back. If the conversation was already closed, click Restart.",
     reiniciada: "Schedule and conversation restarted.",
     log: {
-      leitura: "tool · read", escrita: "tool · write", gate: "gate · held",
+      leitura: "tool · read", escrita: "tool · write", gate: "confirmation held",
       gateTexto: (t) => `<b>${t}</b> not executed: waiting for the person to confirm`,
       permitida: "allowed", recusada: "refused", regra: "policy", versaoRegra: "policy",
-      gravado: "written", resultado: "result", falhou: "failed", llm: "llm",
+      gravado: "written", resultado: "result", falhou: "failed", llm: "model call",
       cacheLido: (n) => `cache read ${n}`, semCache: "no cache read", tarifas: "rates",
       encerrada: "closed", simulado: "simulated handoff",
-      provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b> · ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
+      provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
     },
     provas: (d) => [
       [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
@@ -403,10 +637,22 @@ function aplicarIdioma() {
   montarSugestoes();
 }
 
+// Uma fala da conversa. Quem falou vai no rótulo; o texto vai por textContent,
+// nunca innerHTML: a fala do modelo e a do visitante são dados, não marcação.
 function bolha(texto, quem) {
   const el = document.createElement("div");
-  el.className = "bolha " + quem;
-  el.textContent = texto;
+  if (quem === "sistema" || quem === "neutro") {
+    el.className = quem === "neutro" ? "sistema neutro" : "sistema";
+    el.textContent = texto;
+  } else {
+    el.className = "fala " + quem;
+    const rotulo = document.createElement("span");
+    rotulo.className = "micro";
+    rotulo.textContent = quem === "eu" ? t().voce : t().assistente;
+    const p = document.createElement("p");
+    p.textContent = texto;
+    el.append(rotulo, p);
+  }
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
   return el;
@@ -416,7 +662,7 @@ function evento(tag, html, classe = "") {
   if (log.querySelector(".vazio")) log.innerHTML = "";
   const el = document.createElement("div");
   el.className = "ev " + classe;
-  el.innerHTML = `<span class="tag">${tag}</span><span>${html}</span>`;
+  el.innerHTML = `<span class="tag">${tag}</span><span class="txt">${html}</span>`;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
@@ -444,6 +690,19 @@ function hora(iso) {
   } catch { return iso; }
 }
 
+function mostrarEstado(st, titulo) {
+  const el = $("#estado");
+  el.textContent = t().estados[st] || st || "";
+  el.title = titulo || st || "";
+  // O ponto só acende quando a vez é de quem visita: é informação, não enfeite.
+  el.classList.toggle("aguardando", st === "confirming");
+}
+
+function contarRecusa() {
+  recusas += 1;
+  $("#recusas").textContent = String(recusas);
+}
+
 // Conversa encerrada é terminal no servidor. Deixar o campo e os exemplos
 // ativos convidava a mandar mensagem só para receber o mesmo aviso de novo.
 function travar(sim) {
@@ -466,7 +725,8 @@ async function carregarProvas() {
 function desenharProvas() {
   if (!dadosProvas) return;
   const el = $("#provas");
-  el.innerHTML = t().provas(dadosProvas).map(([html, dica]) => `<span title="${esc(dica)}">${html}</span>`).join("");
+  el.innerHTML = t().provas(dadosProvas).map(([html, dica]) => `<span title="${esc(dica)}">${html}</span>`).join("")
+    + `<p class="provas-nota">${esc(t().provasNota)}</p>`;
   el.hidden = false;
 }
 
@@ -475,7 +735,7 @@ async function carregarSaude() {
     const d = await (await fetch("/health")).json();
     const el = $("#agentestatus");
     el.textContent = { ok: t().agenteOk, indisponivel: t().agenteIndisponivel }[d.agente] || t().agenteSemDados;
-    el.style.color = d.agente === "indisponivel" ? "var(--erro)" : "";
+    el.classList.toggle("alerta", d.agente === "indisponivel");
   } catch {
     $("#agentestatus").textContent = t().erpSemResposta;
   }
@@ -487,34 +747,43 @@ async function carregarAgenda() {
     const r = await fetch("/api/estado");
     const d = await r.json();
     $("#erpstatus").textContent = d.down ? t().erpDown : t().erpOnline;
-    $("#erpstatus").style.color = d.down ? "var(--erro)" : "";
+    $("#erpstatus").classList.toggle("alerta", !!d.down);
     const st = d.conversa?.estado || "";
-    $("#estado").textContent = t().estados[st] || st;
-    $("#estado").title = d.conversa?.escalada ? `${st} · ${d.conversa.escalada}` : st;
+    mostrarEstado(st, d.conversa?.escalada ? `${st} · ${d.conversa.escalada}` : st);
     $("#chaos").setAttribute("aria-pressed", String(!!d.down));
     $("#chaos").textContent = d.down ? t().chaosLigado : t().chaos;
     travar(st === "escalated");
 
-    agenda.innerHTML = "";
     if (!d.consultas?.length) {
       agenda.innerHTML = `<tr><td colspan="4" class="vazio">${esc(t().semConsultas)}</td></tr>`;
       return;
     }
     const novo = new Map();
+    const linhas = [];
+    let houveMudanca = false;
     for (const c of d.consultas) {
       novo.set(c.id, c.inicio + c.status);
       const mudou = ultimoEstadoAgenda.size && ultimoEstadoAgenda.get(c.id) !== c.inicio + c.status;
+      if (mudou) houveMudanca = true;
       const tr = document.createElement("tr");
+      tr.dataset.id = c.id;
       tr.className = (c.status === "cancelada" ? "cancelada " : "") + (mudou ? "mudou" : "");
       // Vaga aberta vem com paciente_nome vazio, e vazio na coluna "Paciente"
       // lia como consulta que perdeu o nome. Ela não perdeu: não tem titular.
       const paciente = c.paciente_nome
         ? esc(c.paciente_nome)
-        : `<span style="color:var(--txt3)">${esc(t().vagaAberta)}</span>`;
-      tr.innerHTML = `<td style="font-family:var(--mono);font-size:12px">${esc(c.id)}</td>
-        <td>${paciente}</td><td>${esc(c.profissional_nome)}</td><td>${esc(hora(c.inicio))}</td>`;
-      agenda.appendChild(tr);
+        : `<span class="vaga">${esc(t().vagaAberta)}</span>`;
+      tr.innerHTML = `<td class="id">${esc(c.id)}</td>
+        <td>${paciente}</td><td>${esc(c.profissional_nome)}</td><td class="hora">${esc(hora(c.inicio))}</td>`;
+      linhas.push(tr);
     }
+    // A marca da última gravação fica até a próxima: redesenhar a tabela sem
+    // mudança nenhuma (troca de idioma, polling) não pode apagar a prova.
+    if (!houveMudanca) {
+      const marcadas = new Set([...agenda.querySelectorAll("tr.mudou")].map((tr) => tr.dataset.id));
+      for (const tr of linhas) if (marcadas.has(tr.dataset.id)) tr.classList.add("mudou", "sem-clarao");
+    }
+    agenda.replaceChildren(...linhas);
     ultimoEstadoAgenda = novo;
   } catch {
     $("#erpstatus").textContent = t().erpSemResposta;
@@ -529,11 +798,27 @@ function mensagemHttp(status, motivo) {
   return t().indisponivel;
 }
 
-async function enviar(texto) {
+// Quem clica num exemplo com o painel meio fora da tela perde a resposta e a
+// linha que muda no ERP. A página rola uma vez, em resposta ao clique.
+function trazerPainel() {
+  const r = document.querySelector(".painel-envelope .bezel").getBoundingClientRect();
+  if (r.top < 0 || r.bottom > window.innerHeight + 2) {
+    document.querySelector(".painel-envelope").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+}
+
+async function enviar(texto, efeito) {
   if (encerrada) return;
+  if (window.innerWidth > 900) trazerPainel();
   $("#enviar").disabled = true;
   $("#entrada").value = "";
-  bolha(texto, "eu");
+  const minha = bolha(texto, "eu");
+  if (efeito) {
+    const nota = document.createElement("span");
+    nota.className = "esperado";
+    nota.innerHTML = `<b>${esc(t().esperado)}</b> ${esc(efeito)}`;
+    minha.appendChild(nota);
+  }
   const pensando = document.createElement("div");
   pensando.className = "pensando";
   pensando.textContent = t().pensando;
@@ -585,8 +870,7 @@ function renderizar(tipo, d) {
       bolha(d.texto, "ela");
       break;
     case "state":
-      $("#estado").textContent = t().estados[d.estado] || d.estado;
-      $("#estado").title = d.estado + (d.motivo ? " · " + d.motivo : "");
+      mostrarEstado(d.estado, d.estado + (d.motivo ? " · " + d.motivo : ""));
       break;
     case "tool_call":
       evento(d.scope === "write" ? L.escrita : L.leitura,
@@ -598,9 +882,10 @@ function renderizar(tipo, d) {
       evento(L.gate, L.gateTexto(esc(d.tool)), "negado");
       break;
     case "policy":
+      if (!d.allowed) contarRecusa();
       evento(L.regra,
-        `<b>${esc(d.regra)}</b> → ${d.allowed ? L.permitida : `${L.recusada} · <b>${esc(d.reason_code)}</b>`}`
-          + (d.rules_version ? ` <span class="versao">${L.versaoRegra} ${esc(d.rules_version)}</span>` : ""),
+        `<b>${esc(d.regra)}</b> → ${d.allowed ? L.permitida : `${L.recusada}: <b>${esc(d.reason_code)}</b>`}`
+          + (d.rules_version ? `<span class="versao">${L.versaoRegra} ${esc(d.rules_version)}</span>` : ""),
         d.allowed ? "permitido" : "negado");
       break;
     case "usage": {
@@ -608,8 +893,8 @@ function renderizar(tipo, d) {
       // silencioso de prefixo.
       const cache = d.cache_hit ? L.cacheLido(d.cache_read_tokens.toLocaleString(t().locale)) : L.semCache;
       evento(L.llm,
-        `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms · <b>${usd(d.usd_turno)}</b> · ${cache}`
-          + (d.rates_version ? ` <span class="versao">${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
+        `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms, <b>${usd(d.usd_turno)}</b>, ${cache}`
+          + (d.rates_version ? `<span class="versao">${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
         d.cache_hit ? "medida" : "medida semcache");
       $("#gasto").textContent = usd(d.usd_conversa);
       break;
@@ -621,7 +906,7 @@ function renderizar(tipo, d) {
       evento(L.resultado, `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado).slice(0, 220))}`);
       break;
     case "tool_error":
-      evento(L.falhou, `<b>${esc(d.tool)}</b> · ${esc(d.code)}`, "erro");
+      evento(L.falhou, `<b>${esc(d.tool)}</b>: ${esc(d.code)}`, "erro");
       break;
     case "provider_error":
       // Falha do provedor não encerra a conversa: o turno foi desfeito no
@@ -631,7 +916,7 @@ function renderizar(tipo, d) {
       break;
     case "escalated": {
       const motivo = t().motivos[d.motivo] || d.motivo;
-      evento(L.encerrada, `<b>${esc(d.motivo)}</b> · ${L.simulado}`, "erro");
+      evento(L.encerrada, `<b>${esc(d.motivo)}</b>, ${L.simulado}`, "erro");
       if (!encerrada) bolha(t().encerrada(motivo), "sistema");
       travar(true);
       break;
@@ -650,15 +935,17 @@ function renderizar(tipo, d) {
 function montarSugestoes() {
   const caixa = $("#sugestoes");
   caixa.innerHTML = "";
-  // Cada exemplo diz o que ele PROVA e o que deve acontecer, inclusive a etapa
-  // de confirmação antes de uma escrita. Sem isso a recusa por regra lia como
-  // o bot falhando.
+  // O rótulo diz o que o exemplo PROVA. A frase enviada e o resultado esperado
+  // aparecem na conversa no momento do clique, antes da resposta: sem isso a
+  // recusa por regra lia como o bot falhando.
   for (const s of t().sugestoes) {
     const b = document.createElement("button");
     b.type = "button";
-    b.innerHTML = `<span class="rotulo">${esc(s.rotulo)}</span>${esc(s.msg)}<span class="efeito">${esc(s.efeito)}</span>`;
+    b.className = "pilula";
+    b.textContent = s.rotulo;
+    b.title = s.msg;
     b.disabled = encerrada;
-    b.addEventListener("click", () => enviar(s.msg));
+    b.addEventListener("click", () => enviar(s.msg, s.efeito));
     caixa.appendChild(b);
   }
 }
@@ -681,11 +968,15 @@ $("#reset").addEventListener("click", async () => {
   chat.innerHTML = "";
   log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
   ultimoEstadoAgenda = new Map();
+  // Agenda nova, semeada de novo: a marca da gravação anterior não vale mais.
+  agenda.querySelectorAll("tr.mudou").forEach((tr) => tr.classList.remove("mudou", "sem-clarao"));
   // O total e POR CONVERSA, e o reset comeca uma conversa nova.
   $("#gasto").textContent = usd(0);
+  recusas = 0;
+  $("#recusas").textContent = "0";
   travar(false);
   bolha(t().saudacao, "ela");
-  bolha(t().reiniciada, "sistema");
+  bolha(t().reiniciada, "neutro");
   carregarAgenda();
 });
 
