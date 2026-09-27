@@ -78,6 +78,15 @@ sessão expira. Nada aqui persiste, e nenhum dado de um visitante é visível pa
 outro. Teto de gasto diário em dólar, reservado antes de cada chamada paga e
 reconciliado contra o `usage` real depois, mais kill switch por env var.
 
+O ERP público não aceita sessão escolhida por quem chama. Sem `X-Tenant-Id`, ou
+com um id que nenhum servidor emitiu, a resposta é 401, e não existe tenant
+padrão. Quem explora o `/docs` pede um id em `POST /sessions` (teto por IP). O
+agente e o servidor MCP sorteiam o deles e falam com o ERP pela rede interna. O
+ERP reconhece essa rede pela ausência de `X-Real-Ip`, que o Traefik sempre
+escreve em request de fora (`tests/test_erp_sessoes.py`). Cada origem (`demo`,
+`mcp`, `api`) tem o próprio teto de tenants, e encher uma não despeja a outra.
+A página também limita sessões novas por IP.
+
 A sessão vive no processo (`_sessoes`), o que prende a demo a **um worker só**.
 É decisão consciente para o escopo dela — nada persiste por definição — e é o
 primeiro ponto a mudar se um dia ela precisar de mais de uma réplica.

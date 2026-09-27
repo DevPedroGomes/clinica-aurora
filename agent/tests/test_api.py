@@ -192,6 +192,34 @@ def test_chaos_vai_para_o_tenant_da_sessao(api):
     assert rota.calls.last.request.headers["X-Tenant-Id"].startswith("demo-")
 
 
+def test_criar_sessao_em_laco_nao_despeja_a_conversa_de_outro_visitante(
+    api, monkeypatch
+):
+    """`_sessoes` despeja a mais antiga quando enche. Sem teto de sessão NOVA por
+    IP, um laço de GET sem cookie em /api/estado enchia o dicionário e apagava a
+    conversa de quem estava no meio de uma."""
+    monkeypatch.setattr(api, "NOVAS_SESSOES_POR_IP", 3)
+    monkeypatch.setattr(api, "MAX_SESSOES", 4)  # o visitante e as 3 que cabem
+    visitante = cliente(api)
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(
+            return_value=httpx.Response(200, json={"down": False, "consultas": []})
+        )
+        visitante.post(
+            "/api/chat", json={"mensagem": "oi"}, headers={"x-real-ip": "198.51.100.4"}
+        )
+
+        abuso = {"x-real-ip": "203.0.113.7"}
+        codigos = [
+            cliente(api).get("/api/estado", headers=abuso).status_code for _ in range(6)
+        ]
+        assert codigos == [200, 200, 200, 429, 429, 429]
+
+        # A sessão do visitante sobreviveu: a escrita da conversa continua lá.
+        estado = visitante.get("/api/estado", headers={"x-real-ip": "198.51.100.4"})
+    assert estado.json()["conversa"]["escritas"] == 1
+
+
 def test_health_nao_conta_quanto_sobrou_do_teto(api):
     """Saldo do teto diário é número operacional — e dica de abuso.
 

@@ -5,7 +5,10 @@ junto com a demo, com OpenAPI em /docs, para que o visitante possa inspecionar o
 outro lado da integração e confirmar que a escrita aconteceu de verdade.
 
 Duas coisas aqui existem só por causa da demo, e estão declaradas na página:
-  - `X-Tenant-Id`: isola a agenda de cada visitante.
+  - `X-Tenant-Id`: isola a agenda de cada visitante. O id e sempre emitido por
+    um servidor, nunca escolhido por quem chama: o agente e o servidor MCP
+    sorteiam o deles na rede interna, e quem explora o /docs pede um em
+    `POST /sessions`. Sem header, ou com id que ninguem emitiu, a resposta e 401.
   - `/admin/chaos`: derruba o ERP sob demanda, para provar que o agente escala
     em vez de inventar uma confirmação quando a escrita falha.
 """
@@ -22,7 +25,6 @@ from collections import defaultdict, deque
 from fastapi import (
     Depends,
     FastAPI,
-    Header,
     HTTPException,
     Query,
     Request,
@@ -31,6 +33,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.security import APIKeyHeader
 
 from .models import (
     AbrirVagaRequest,
@@ -47,6 +50,7 @@ from .store import (
     MAX_CONSULTAS_POR_TENANT,
     PACIENTES,
     PROFISSIONAIS,
+    TENANT_TTL,
     Tenant,
     store,
 )
@@ -57,22 +61,48 @@ DURACOES_VALIDAS = {30, 45, 60}
 # poe em x-real-ip; quem chega sem o header cai num balde comum em vez de
 # ganhar cota nova a cada requisicao.
 ESCRITAS_POR_IP = 60
+# Sessoes novas por IP, para quem chega de fora. Cada uma ocupa uma vaga da
+# origem `api`; sem teto, um laco de POST /sessions despejaria as sessoes de
+# quem esta explorando o /docs agora.
+SESSOES_POR_IP = 10
 JANELA_S = 600
-_hits: dict[str, deque[float]] = defaultdict(deque)
 
 
-def _limitar(request: Request) -> None:
-    ip = request.headers.get("x-real-ip") or "sem-ip"
-    agora = time.monotonic()
-    janela = _hits[ip]
-    while janela and agora - janela[0] > JANELA_S:
-        janela.popleft()
-    if not janela:
-        _hits.pop(ip, None)  # nao deixa o dicionario crescer com IPs ociosos
-        janela = _hits[ip]
-    if len(janela) >= ESCRITAS_POR_IP:
-        raise HTTPException(429, "Too many changes. Please wait a few minutes.")
-    janela.append(agora)
+class _TetoPorIp:
+    def __init__(self, limite: int, mensagem: str) -> None:
+        self.limite = limite
+        self.mensagem = mensagem
+        self.hits: dict[str, deque[float]] = defaultdict(deque)
+
+    def __call__(self, request: Request) -> None:
+        ip = request.headers.get("x-real-ip") or "sem-ip"
+        agora = time.monotonic()
+        janela = self.hits[ip]
+        while janela and agora - janela[0] > JANELA_S:
+            janela.popleft()
+        if not janela:
+            self.hits.pop(ip, None)  # nao deixa o dicionario crescer com IPs ociosos
+            janela = self.hits[ip]
+        if len(janela) >= self.limite:
+            raise HTTPException(429, self.mensagem)
+        janela.append(agora)
+
+
+_limitar = _TetoPorIp(ESCRITAS_POR_IP, "Too many changes. Please wait a few minutes.")
+_limitar_sessoes = _TetoPorIp(
+    SESSOES_POR_IP, "Too many sessions from this address. Please wait a few minutes."
+)
+
+
+def _interno(request: Request) -> bool:
+    """Veio pela rede interna do Docker, e nao pela internet.
+
+    ⚠️ O criterio e a AUSENCIA de `X-Real-Ip`, e ele so vale por duas coisas do
+    deploy: a porta do ERP nao e publicada fora da rede `proxy`, e todo request
+    publico passa pelo Traefik, que descarta o `X-Real-Ip` do cliente e escreve o
+    do peer TCP real. Quem chega de fora sempre traz o header. Se um dia o ERP
+    for exposto sem o Traefik na frente, este criterio deixa de valer."""
+    return request.headers.get("x-real-ip") is None
 
 
 app = FastAPI(
@@ -83,7 +113,10 @@ app = FastAPI(
         "Published alongside the agent demo so anyone can see the other side of "
         "the integration: the agent talks to this API over HTTP, exactly as it "
         "would talk to a real client's ERP.\n\n"
-        "Each demo session gets its own `X-Tenant-Id` and its own schedule."
+        "Each demo session gets its own `X-Tenant-Id` and its own schedule.\n\n"
+        "**To try it here:** call `POST /sessions`, then paste the `tenant_id` it "
+        "returns into **Authorize** (the `X-Tenant-Id` header). Requests without "
+        "it, or with an id that was not issued, get 401."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
@@ -101,12 +134,48 @@ def agora() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def get_tenant(
-    x_tenant_id: Annotated[
-        str, Header(description="Demo session identifier.")
-    ] = "demo",
+_sessao_header = APIKeyHeader(
+    name="X-Tenant-Id",
+    auto_error=False,
+    description="Demo session id, issued by POST /sessions.",
+)
+
+SEM_SESSAO = (
+    "Missing X-Tenant-Id. Create a session with POST /sessions and send the "
+    "tenant_id it returns in this header."
+)
+SESSAO_DESCONHECIDA = "Unknown or expired session. Create one with POST /sessions."
+
+
+def resolver_tenant(
+    request: Request,
+    x_tenant_id: Annotated[str | None, Depends(_sessao_header)] = None,
 ) -> Tenant:
-    t = store.tenant(x_tenant_id[:64], agora())
+    """O tenant de quem chama, sem olhar se o modo caos esta ligado.
+
+    Nao existe tenant padrao: antes, sem header, todo mundo caia no mesmo
+    `demo`, e um visitante derrubava o ERP de outro. De fora, so vale id
+    emitido por `POST /sessions`; um id da pagina ou do MCP (`demo-`, `mcp-`)
+    recebe o mesmo 401 de um id inventado, sem dizer se ele existe. A rede
+    interna pode semear `demo-` e `mcp-` na hora, que e o que mantem a sessao
+    do visitante de pe depois de um restart do ERP."""
+    if not x_tenant_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SEM_SESSAO)
+    tenant_id = x_tenant_id[:64]
+    origem = store.origem(tenant_id)
+    interno = _interno(request)
+    if origem is None or (not interno and origem != "api"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSAO_DESCONHECIDA)
+    t = store.tenant(tenant_id, agora(), criar=interno and origem != "api")
+    if t is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSAO_DESCONHECIDA)
+    return t
+
+
+SessaoDep = Annotated[Tenant, Depends(resolver_tenant)]
+
+
+def get_tenant(t: SessaoDep) -> Tenant:
     if t.down:
         # 503 e não 500: é indisponibilidade declarada, e é o que o adapter do
         # agente trata como "sistema fora do ar" para escalar.
@@ -301,18 +370,35 @@ def abrir_vaga(
 
 
 @app.post(
+    "/sessions",
+    status_code=status.HTTP_201_CREATED,
+    tags=["demo"],
+    summary="Create a demo session with its own schedule",
+)
+def criar_sessao(request: Request) -> dict[str, object]:
+    """Issues a random `X-Tenant-Id` with a freshly seeded schedule.
+
+    Send it in the `X-Tenant-Id` header (or paste it into **Authorize**) on every
+    other call. It expires after two hours.
+    """
+    if not _interno(request):
+        _limitar_sessoes(request)
+    return {
+        "tenant_id": store.emitir("api", agora()),
+        "header": "X-Tenant-Id",
+        "expires_in_seconds": int(TENANT_TTL.total_seconds()),
+    }
+
+
+@app.post(
     "/admin/chaos", tags=["demo"], summary="Turn chaos mode on or off for this session"
 )
-def chaos(
-    ligado: bool,
-    x_tenant_id: Annotated[str, Header()] = "demo",
-) -> dict[str, bool]:
+def chaos(ligado: bool, t: SessaoDep) -> dict[str, bool]:
     """With chaos on, every schedule endpoint answers 503 for this session.
 
     It exists so the visitor can watch the agent fail honestly: it says it could
     not write and escalates, instead of returning a made-up confirmation.
     """
-    t = store.tenant(x_tenant_id[:64], agora())
     t.down = ligado
     return {"down": t.down}
 
@@ -320,8 +406,8 @@ def chaos(
 @app.post(
     "/admin/reset", tags=["demo"], summary="Rebuild this session's initial schedule"
 )
-def reset(x_tenant_id: Annotated[str, Header()] = "demo") -> Response:
-    store.reset(x_tenant_id[:64], agora())
+def reset(t: SessaoDep) -> Response:
+    store.resemear(t, agora())
     return Response(status_code=204)
 
 
@@ -330,8 +416,7 @@ def reset(x_tenant_id: Annotated[str, Header()] = "demo") -> Response:
     tags=["demo"],
     summary="This session's full schedule, for the panel",
 )
-def estado(x_tenant_id: Annotated[str, Header()] = "demo") -> dict[str, object]:
-    t = store.tenant(x_tenant_id[:64], agora())
+def estado(t: SessaoDep) -> dict[str, object]:
     consultas = sorted(t.consultas.values(), key=lambda c: c.inicio)
     return {
         "down": t.down,

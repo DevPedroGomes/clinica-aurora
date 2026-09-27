@@ -384,7 +384,7 @@
                      afirma, ela mostra acontecendo. -->
                 <span class="dir">
                   <span><span data-t="recusasRotulo"></span> <b id="recusas" class="num">0</b></span>
-                  <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" class="num">$0.0000</b></span>
+                  <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" class="num">US$ 0,0000</b></span>
                 </span>
               </div>
               <div class="log" id="log" aria-live="polite"></div>
@@ -417,7 +417,7 @@
   <span><span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
   <nav aria-label="Links">
     <a href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="linkOperacoes"></a>
-    <a href="https://portfolio.pgdev.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
+    <a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
     <a href="https://gomio.com.br/privacidade" target="_blank" rel="noopener" data-t="privacidade"></a>
   </nav>
 </footer>
@@ -458,14 +458,14 @@ const T = {
     cabecaLog: "registro de decisões",
     recusasRotulo: "recusas",
     gastoRotulo: "custo",
-    gastoTitulo: "Quanto esta conversa custou até agora, pelas tarifas de pricing.yaml",
+    gastoTitulo: "Quanto esta conversa custou até agora, em dólares (US$), pelas tarifas de pricing.yaml",
     logVazio: "Cada consulta à agenda, cada decisão de regra e cada gravação aparece aqui, com o código da regra que decidiu.",
     provasNota: "Números gerados no CI desta versão, não digitados.",
     limites: '<strong>Limites da demo.</strong> Sessão anônima com agenda própria e isolada, no máximo 3 alterações por conversa e teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real. Há um botão de desligar geral, e nada fica guardado depois da sessão.',
     fimTitulo: "Quer isso na agenda ou no ERP da sua empresa?",
     fimTexto: "A Gomio monta o fluxo nos sistemas que você já usa. As suas regras decidem, o agente executa, e cada passo fica registrado.",
     fimCta: "Ver como a Gomio implementa",
-    outraDemo: "Testar a recepcionista que atende telefone",
+    outraDemo: "Conversar com a recepcionista de voz da Gomio, pelo navegador",
     feitoPor: "Demo feita pela", outrosProjetos: "outros projetos",
     linkOperacoes: "operações", privacidade: "privacidade",
     saudacao: "Oi! Sou a assistente da recepção. Consulto a agenda, remarco, cancelo e abro vagas. Antes de qualquer alteração, eu digo o que vou fazer e espero você confirmar. Pode escrever em qualquer idioma: respondo no seu.",
@@ -550,14 +550,14 @@ const T = {
     cabecaLog: "decision log",
     recusasRotulo: "refusals",
     gastoRotulo: "cost",
-    gastoTitulo: "What this conversation has cost so far, at the rates in pricing.yaml",
+    gastoTitulo: "What this conversation has cost so far, in US dollars, at the rates in pricing.yaml",
     logVazio: "Every schedule lookup, every policy decision and every write shows up here, with the code of the rule that decided it.",
     provasNota: "Numbers generated in CI for this build, never typed in.",
     limites: '<strong>Demo limits.</strong> Anonymous session with its own isolated schedule, at most 3 changes per conversation and a daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after. There is a kill switch, and nothing persists after the session.',
     fimTitulo: "Want this on your company's schedule or ERP?",
     fimTexto: "Gomio builds the flow into the systems you already use. Your rules decide, the agent executes, and every step is logged.",
     fimCta: "See how Gomio builds it",
-    outraDemo: "Try the receptionist that answers the phone",
+    outraDemo: "Talk to the Gomio voice receptionist, in the browser",
     feitoPor: "Demo built by", outrosProjetos: "other projects",
     linkOperacoes: "operations", privacidade: "privacy",
     saudacao: "Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Before any change I tell you what I'm about to do and wait for your confirmation. Write in any language, I'll answer in yours.",
@@ -632,6 +632,7 @@ function aplicarIdioma() {
   document.querySelectorAll("[data-t-html]").forEach((el) => { el.innerHTML = t()[el.dataset.tHtml]; });
   document.querySelectorAll("[data-t-title]").forEach((el) => { el.title = t()[el.dataset.tTitle]; });
   $("#idioma").textContent = t().idiomaBotao;
+  $("#gasto").textContent = usd(gastoUsd);
   $("#chaos").textContent = $("#chaos").getAttribute("aria-pressed") === "true" ? t().chaosLigado : t().chaos;
   $("#entrada").placeholder = encerrada ? t().placeholderEncerrada : t().placeholder;
   if (log.querySelector(".vazio") || !log.children.length) log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
@@ -673,11 +674,25 @@ function esc(s) {
 }
 
 // Custo de turno vive na casa dos milesimos de dolar, entao duas casas mostram
-// "$0.00" para tudo e a linha nao prova nada. Quatro casas ate um centavo, duas
+// "US$ 0,00" para tudo e a linha nao prova nada. Quatro casas ate um centavo, duas
 // dai pra cima: o numero fica legivel nas duas escalas sem notacao cientifica.
+// A moeda continua sendo dolar, porque e em dolar que o provedor cobra; o que segue
+// o idioma e a escrita: "US$ 0,0000" em portugues, "$0.0000" em ingles.
 function usd(v) {
   const n = Number(v) || 0;
-  return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+  const casas = n < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat(t().locale, {
+    style: "currency", currency: "USD",
+    minimumFractionDigits: casas, maximumFractionDigits: casas,
+  }).format(n).replace(/\u00a0/g, " ");
+}
+
+// O total fica guardado para ser reescrito na troca de idioma: sem isto o valor
+// ficaria na formatacao do idioma anterior ate a proxima chamada paga.
+let gastoUsd = 0;
+function mostrarGasto(v) {
+  gastoUsd = Number(v) || 0;
+  $("#gasto").textContent = usd(gastoUsd);
 }
 
 function hora(iso) {
@@ -897,7 +912,7 @@ function renderizar(tipo, d) {
         `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms, <b>${usd(d.usd_turno)}</b>, ${cache}`
           + (d.rates_version ? `<span class="versao">${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
         d.cache_hit ? "medida" : "medida semcache");
-      $("#gasto").textContent = usd(d.usd_conversa);
+      mostrarGasto(d.usd_conversa);
       break;
     }
     case "write":
@@ -928,7 +943,7 @@ function renderizar(tipo, d) {
     case "done":
       // Um turno pode terminar sem nenhuma chamada paga. Sem isto o total
       // ficaria parado no valor do turno anterior.
-      if (d.usd_conversa !== undefined) $("#gasto").textContent = usd(d.usd_conversa);
+      if (d.usd_conversa !== undefined) mostrarGasto(d.usd_conversa);
       break;
   }
 }
@@ -972,7 +987,7 @@ $("#reset").addEventListener("click", async () => {
   // Agenda nova, semeada de novo: a marca da gravação anterior não vale mais.
   agenda.querySelectorAll("tr.mudou").forEach((tr) => tr.classList.remove("mudou", "sem-clarao"));
   // O total e POR CONVERSA, e o reset comeca uma conversa nova.
-  $("#gasto").textContent = usd(0);
+  mostrarGasto(0);
   recusas = 0;
   $("#recusas").textContent = "0";
   travar(false);

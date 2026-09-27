@@ -36,6 +36,10 @@ SESSAO_TTL = 2 * 60 * 60
 MAX_SESSOES = 500
 MENSAGEM_MAX = 500
 RATE_POR_IP = 30  # mensagens por 10 minutos
+# Sessoes NOVAS por IP na mesma janela. Sem isto, 500 GETs sem cookie em
+# /api/estado enchiam `_sessoes` e o despejo do mais antigo apagava a conversa
+# de todo visitante que estava no meio de uma. Um visitante de verdade abre uma.
+NOVAS_SESSOES_POR_IP = 20
 JANELA_RATE = 600
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -66,6 +70,7 @@ class Sessao:
 
 _sessoes: dict[str, Sessao] = {}
 _hits: dict[str, deque[float]] = defaultdict(deque)
+_novas: dict[str, deque[float]] = defaultdict(deque)
 
 
 def _limpar() -> None:
@@ -83,26 +88,36 @@ def _ip(x_real_ip: str | None) -> str:
     return x_real_ip or "sem-ip"
 
 
-def _rate_limit(ip: str) -> None:
+def _janela(hits: dict[str, deque[float]], ip: str, limite: int, msg: str) -> None:
     agora = time.monotonic()
-    janela = _hits[ip]
+    janela = hits[ip]
     while janela and agora - janela[0] > JANELA_RATE:
         janela.popleft()
     if not janela:
         # Sem isto o dicionário nunca encolhe: cada IP que passou por aqui uma
         # vez deixa uma chave viva para sempre. É vazamento lento, mas é o tipo
         # que só aparece em produção, semanas depois.
-        _hits.pop(ip, None)
-        janela = _hits[ip]
-    if len(janela) >= RATE_POR_IP:
-        raise HTTPException(429, "Too many messages. Please wait a few minutes.")
+        hits.pop(ip, None)
+        janela = hits[ip]
+    if len(janela) >= limite:
+        raise HTTPException(429, msg)
     janela.append(agora)
 
 
-def _sessao(sid: str | None) -> tuple[str, Sessao]:
+def _rate_limit(ip: str) -> None:
+    _janela(_hits, ip, RATE_POR_IP, "Too many messages. Please wait a few minutes.")
+
+
+def _sessao(sid: str | None, ip: str) -> tuple[str, Sessao]:
     _limpar()
     if sid and sid in _sessoes:
         return sid, _sessoes[sid]
+    _janela(
+        _novas,
+        ip,
+        NOVAS_SESSOES_POR_IP,
+        "Too many new sessions from this address. Please wait a few minutes.",
+    )
     novo = uuid.uuid4().hex
     _sessoes[novo] = Sessao(tenant_id=f"demo-{novo[:12]}")
     return novo, _sessoes[novo]
@@ -179,7 +194,7 @@ async def chat(
         raise HTTPException(400, f"Message too long (max {MENSAGEM_MAX} characters).")
 
     _rate_limit(_ip(x_real_ip))
-    sid, sessao = _sessao(sid)
+    sid, sessao = _sessao(sid, _ip(x_real_ip))
 
     # `locked()` e `acquire()` sem await no meio: em asyncio nada interleva
     # entre os dois, então isto é atômico. Checar aqui e adquirir lá dentro do
@@ -254,9 +269,10 @@ async def chat(
 async def estado(
     response: Response,
     sid: Annotated[str | None, Cookie(alias="aurora_sid")] = None,
+    x_real_ip: Annotated[str | None, Header()] = None,
 ):
     """Espelho do ERP para o painel da direita. É o outro lado da integração."""
-    sid, sessao = _sessao(sid)
+    sid, sessao = _sessao(sid, _ip(x_real_ip))
     async with httpx.AsyncClient(timeout=5.0) as client:
         r = await client.get(
             f"{ERP_URL}/admin/estado", headers={"X-Tenant-Id": sessao.tenant_id}
@@ -288,7 +304,7 @@ async def chaos(
     x_real_ip: Annotated[str | None, Header()] = None,
 ):
     _rate_limit(_ip(x_real_ip))
-    sid, sessao = _sessao(sid)
+    sid, sessao = _sessao(sid, _ip(x_real_ip))
     async with httpx.AsyncClient(timeout=5.0) as client:
         r = await client.post(
             f"{ERP_URL}/admin/chaos",
@@ -313,7 +329,7 @@ async def reset(
     x_real_ip: Annotated[str | None, Header()] = None,
 ):
     _rate_limit(_ip(x_real_ip))
-    sid, sessao = _sessao(sid)
+    sid, sessao = _sessao(sid, _ip(x_real_ip))
     async with httpx.AsyncClient(timeout=5.0) as client:
         await client.post(
             f"{ERP_URL}/admin/reset", headers={"X-Tenant-Id": sessao.tenant_id}
