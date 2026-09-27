@@ -40,4 +40,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["python", "/app/mcpsrv/healthcheck.py"]
 
-CMD ["uvicorn", "mcpsrv.server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Sem `server: uvicorn` na resposta: o cabecalho so informa a pilha a quem procura
+# alvo, e nenhum cliente depende dele.
+CMD ["uvicorn", "mcpsrv.server:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
