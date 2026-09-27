@@ -9,6 +9,7 @@ Estado em memória de propósito: nada aqui sobrevive à sessão (escopo §7).
 
 from __future__ import annotations
 
+import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,15 @@ from itertools import count
 from .models import Consulta, ConsultaStatus, Paciente, Profissional
 
 TENANT_TTL = timedelta(hours=2)
-MAX_TENANTS = 500
+
+# Teto POR ORIGEM, e nao um teto so. Com um teto unico e despejo do mais antigo,
+# 500 ids inventados bastavam para despejar a agenda de todo visitante da demo
+# web: a sessao dele voltava semeada do zero no meio da conversa. Cada origem
+# agora so despeja a si mesma.
+#   demo: sessoes da pagina, criadas pelo agente (rede interna)
+#   mcp:  sessoes do servidor MCP (rede interna)
+#   api:  sessoes emitidas por POST /sessions, para quem explora o /docs
+MAX_TENANTS_POR_ORIGEM = {"demo": 500, "mcp": 200, "api": 200}
 
 # O ERP e publico de proposito — a demo perde o sentido se o visitante nao
 # puder inspecionar o outro lado. Mas publico sem teto e outra coisa: sem isto,
@@ -126,21 +135,46 @@ class Store:
 
     # -- ciclo de vida do tenant -------------------------------------------------
 
-    def tenant(self, tenant_id: str, agora: datetime) -> Tenant:
+    @staticmethod
+    def origem(tenant_id: str) -> str | None:
+        """A origem declarada no prefixo do id, ou None se nao for uma conhecida."""
+        prefixo, _, resto = tenant_id.partition("-")
+        return prefixo if resto and prefixo in MAX_TENANTS_POR_ORIGEM else None
+
+    def tenant(self, tenant_id: str, agora: datetime, *, criar: bool) -> Tenant | None:
+        """O tenant do id, ou None se ele nao existe e `criar` e falso.
+
+        Quem decide se o id pode nascer aqui e a rota: so a rede interna semeia
+        id na hora. Id vindo de fora so vale se foi emitido por `emitir`."""
         with self._lock:
             self._evict(agora)
             t = self._tenants.get(tenant_id)
-            if t is None:
-                if len(self._tenants) >= MAX_TENANTS:
-                    # Despeja o mais antigo em vez de recusar: a demo nunca deve
-                    # dizer "cheio" para um visitante novo.
-                    mais_antigo = min(
-                        self._tenants, key=lambda k: self._tenants[k].criado_em
-                    )
-                    del self._tenants[mais_antigo]
-                t = Tenant(consultas=_seed(agora, self._ids))
-                self._tenants[tenant_id] = t
+            if t is None and criar:
+                t = self._criar(tenant_id, agora)
             return t
+
+    def emitir(self, origem: str, agora: datetime) -> str:
+        """Cria um tenant com id sorteado aqui, 128 bits, que ninguem escolhe."""
+        with self._lock:
+            self._evict(agora)
+            tenant_id = f"{origem}-{secrets.token_hex(16)}"
+            self._criar(tenant_id, agora)
+            return tenant_id
+
+    def _criar(self, tenant_id: str, agora: datetime) -> Tenant:
+        origem = self.origem(tenant_id)
+        if origem is None:
+            raise ValueError(f"origem desconhecida no id {tenant_id!r}")
+        da_origem = [k for k in self._tenants if k.startswith(f"{origem}-")]
+        if len(da_origem) >= MAX_TENANTS_POR_ORIGEM[origem]:
+            # Despeja o mais antigo DA MESMA ORIGEM em vez de recusar: a demo
+            # nunca deve dizer "cheio" para um visitante novo, e encher uma
+            # origem nao pode apagar a sessao de quem esta em outra.
+            mais_antigo = min(da_origem, key=lambda k: self._tenants[k].criado_em)
+            del self._tenants[mais_antigo]
+        t = Tenant(consultas=_seed(agora, self._ids), criado_em=agora)
+        self._tenants[tenant_id] = t
+        return t
 
     def _evict(self, agora: datetime) -> None:
         expirados = [
@@ -149,11 +183,12 @@ class Store:
         for k in expirados:
             del self._tenants[k]
 
-    def reset(self, tenant_id: str, agora: datetime) -> Tenant:
+    def resemear(self, tenant: Tenant, agora: datetime) -> None:
+        """Volta a agenda deste tenant ao inicio, e religa o ERP para ele."""
         with self._lock:
-            t = Tenant(consultas=_seed(agora, self._ids))
-            self._tenants[tenant_id] = t
-            return t
+            tenant.consultas = _seed(agora, self._ids)
+            tenant.down = False
+            tenant.criado_em = agora
 
     # -- consultas ---------------------------------------------------------------
 
