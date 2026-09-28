@@ -94,7 +94,9 @@ HANDLERS = {
 # e fica LIGADA; o que muda e ela saber qual e o nosso host de verdade.
 HOSTS_PERMITIDOS = [
     h.strip()
-    for h in os.getenv("MCP_ALLOWED_HOSTS", "aurora.pgdev.com.br").split(",")
+    for h in os.getenv(
+        "MCP_ALLOWED_HOSTS", "aurora.gomio.com.br,aurora.pgdev.com.br"
+    ).split(",")
     if h.strip()
 ]
 

@@ -1,6 +1,6 @@
 """Um visitante não alcança a sessão de outro pelo ERP público.
 
-O ERP fica aberto em aurora-erp.pgdev.com.br para quem quiser inspecionar o
+O ERP fica aberto em aurora-erp.gomio.com.br para quem quiser inspecionar o
 outro lado da integração, e isso incluía `/admin/chaos` e `/admin/reset`. O id
 da sessão vinha do header que quem chama escolhe, e três coisas deixavam um
 visitante atrapalhar outro:

@@ -4,7 +4,7 @@ Pluge o seu agente na agenda de uma clínica fictícia e tente quebrar as regras
 dela. Você não vai conseguir, e o motivo é o ponto da demo.
 
 ```
-https://aurora.pgdev.com.br/mcp
+https://aurora.gomio.com.br/mcp
 ```
 
 ## O que isto é, e o que não é
@@ -23,7 +23,7 @@ escrever, mas as regras do negócio continuam sendo decididas aqui:
 Claude Code:
 
 ```bash
-claude mcp add --transport http clinica-aurora https://aurora.pgdev.com.br/mcp
+claude mcp add --transport http clinica-aurora https://aurora.gomio.com.br/mcp
 ```
 
 Claude Desktop ou Cursor, no arquivo de configuração de MCP:
@@ -33,7 +33,7 @@ Claude Desktop ou Cursor, no arquivo de configuração de MCP:
   "mcpServers": {
     "clinica-aurora": {
       "type": "http",
-      "url": "https://aurora.pgdev.com.br/mcp"
+      "url": "https://aurora.gomio.com.br/mcp"
     }
   }
 }

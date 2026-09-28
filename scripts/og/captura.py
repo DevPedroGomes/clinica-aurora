@@ -15,7 +15,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 AQUI = Path(__file__).parent
-URL = "https://aurora.pgdev.com.br/?lang=pt"
+URL = "https://aurora.gomio.com.br/?lang=pt"
 
 
 def esperar_resposta(pagina, antes: int) -> None:
