@@ -12,7 +12,7 @@ services:
     container_name: aurora-erp
     restart: unless-stopped
     environment:
-      ERP_CORS_ORIGINS: "https://aurora.pgdev.com.br"
+      ERP_CORS_ORIGINS: "https://aurora.gomio.com.br,https://aurora.pgdev.com.br"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status == 200 else 1)"]
       interval: 30s
@@ -36,17 +36,27 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.aurora-erp.entrypoints=https"
-      - "traefik.http.routers.aurora-erp.rule=Host(`aurora-erp.pgdev.com.br`)"
+      - "traefik.http.routers.aurora-erp.rule=Host(`aurora-erp.gomio.com.br`)"
       - "traefik.http.routers.aurora-erp.tls=true"
       - "traefik.http.routers.aurora-erp.tls.certresolver=letsencrypt"
       - "traefik.http.routers.aurora-erp.middlewares=aurora-erp-security@docker"
+      - "traefik.http.routers.aurora-erp.service=aurora-erp"
       - "traefik.http.services.aurora-erp.loadbalancer.server.port=8080"
+      # Endereco antigo: 301 para o dominio da marca, preservando caminho e query.
+      - "traefik.http.routers.aurora-erp-antigo.entrypoints=https"
+      - "traefik.http.routers.aurora-erp-antigo.rule=Host(`aurora-erp.pgdev.com.br`)"
+      - "traefik.http.routers.aurora-erp-antigo.tls=true"
+      - "traefik.http.routers.aurora-erp-antigo.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.aurora-erp-antigo.service=aurora-erp"
+      - "traefik.http.routers.aurora-erp-antigo.middlewares=aurora-erp-security@docker,aurora-erp-canonico@docker"
+      - 'traefik.http.middlewares.aurora-erp-canonico.redirectregex.regex=^https?://aurora-erp\.pgdev\.com\.br(.*)'
+      - "traefik.http.middlewares.aurora-erp-canonico.redirectregex.replacement=https://aurora-erp.gomio.com.br$${1}"
+      - "traefik.http.middlewares.aurora-erp-canonico.redirectregex.permanent=true"
       - "traefik.http.middlewares.aurora-erp-security.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.aurora-erp-security.headers.stsIncludeSubdomains=true"
       - "traefik.http.middlewares.aurora-erp-security.headers.stsPreload=true"
       - "traefik.http.middlewares.aurora-erp-security.headers.forceSTSHeader=true"
       - "traefik.http.middlewares.aurora-erp-security.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.aurora-erp-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.aurora-erp-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.aurora-erp-security.headers.frameDeny=true"
 
@@ -87,17 +97,30 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.aurora.entrypoints=https"
-      - "traefik.http.routers.aurora.rule=Host(`aurora.pgdev.com.br`)"
+      - "traefik.http.routers.aurora.rule=Host(`aurora.gomio.com.br`)"
       - "traefik.http.routers.aurora.tls=true"
       - "traefik.http.routers.aurora.tls.certresolver=letsencrypt"
       - "traefik.http.routers.aurora.middlewares=aurora-security@docker"
+      - "traefik.http.routers.aurora.service=aurora"
       - "traefik.http.services.aurora.loadbalancer.server.port=8080"
+      # Endereco antigo da pagina: 301 para o dominio da marca. O /mcp do
+      # endereco antigo NAO redireciona (router aurora-mcp, prioridade maior):
+      # cliente MCP configurado com a URL velha faz POST, e redirect de POST
+      # quebra cliente que nao repete o metodo.
+      - "traefik.http.routers.aurora-antigo.entrypoints=https"
+      - "traefik.http.routers.aurora-antigo.rule=Host(`aurora.pgdev.com.br`)"
+      - "traefik.http.routers.aurora-antigo.tls=true"
+      - "traefik.http.routers.aurora-antigo.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.aurora-antigo.service=aurora"
+      - "traefik.http.routers.aurora-antigo.middlewares=aurora-security@docker,aurora-canonico@docker"
+      - 'traefik.http.middlewares.aurora-canonico.redirectregex.regex=^https?://aurora\.pgdev\.com\.br(.*)'
+      - "traefik.http.middlewares.aurora-canonico.redirectregex.replacement=https://aurora.gomio.com.br$${1}"
+      - "traefik.http.middlewares.aurora-canonico.redirectregex.permanent=true"
       - "traefik.http.middlewares.aurora-security.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.aurora-security.headers.stsIncludeSubdomains=true"
       - "traefik.http.middlewares.aurora-security.headers.stsPreload=true"
       - "traefik.http.middlewares.aurora-security.headers.forceSTSHeader=true"
       - "traefik.http.middlewares.aurora-security.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.aurora-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.aurora-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.aurora-security.headers.frameDeny=true"
 
@@ -130,7 +153,7 @@ services:
       # `:*` NAO e decoracao: a comparacao do SDK e exata, e `127.0.0.1` sozinho
       # nao casa com `127.0.0.1:8080`. O host publico vai sem porta porque o
       # Traefik encaminha assim no 443.
-      MCP_ALLOWED_HOSTS: "aurora.pgdev.com.br,127.0.0.1:*,localhost:*"
+      MCP_ALLOWED_HOSTS: "aurora.gomio.com.br,aurora.pgdev.com.br,127.0.0.1:*,localhost:*"
     healthcheck:
       test: ["CMD", "python", "/app/mcpsrv/healthcheck.py"]
       interval: 30s
@@ -154,7 +177,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.aurora-mcp.entrypoints=https"
-      - "traefik.http.routers.aurora-mcp.rule=Host(`aurora.pgdev.com.br`) && PathPrefix(`/mcp`)"
+      - "traefik.http.routers.aurora-mcp.rule=(Host(`aurora.gomio.com.br`) || Host(`aurora.pgdev.com.br`)) && PathPrefix(`/mcp`)"
       - "traefik.http.routers.aurora-mcp.priority=100"
       - "traefik.http.routers.aurora-mcp.tls=true"
       - "traefik.http.routers.aurora-mcp.tls.certresolver=letsencrypt"
@@ -165,7 +188,6 @@ services:
       - "traefik.http.middlewares.aurora-mcp-security.headers.stsPreload=true"
       - "traefik.http.middlewares.aurora-mcp-security.headers.forceSTSHeader=true"
       - "traefik.http.middlewares.aurora-mcp-security.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.aurora-mcp-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.aurora-mcp-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.aurora-mcp-security.headers.frameDeny=true"
 

@@ -257,17 +257,19 @@ def test_protecao_de_host_esta_ligada_e_conhece_o_dominio_publico():
     seguranca = server.servidor.settings.transport_security
     assert seguranca is not None
     assert seguranca.enable_dns_rebinding_protection is True
+    assert "aurora.gomio.com.br" in seguranca.allowed_hosts
+    # O endereco antigo continua aceito: cliente MCP configurado com ele nao quebra.
     assert "aurora.pgdev.com.br" in seguranca.allowed_hosts
 
     validador = server.TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=["aurora.pgdev.com.br", "127.0.0.1:*"],
+        allowed_hosts=["aurora.gomio.com.br", "127.0.0.1:*"],
         allowed_origins=[],
     )
     from mcp.server.transport_security import TransportSecurityMiddleware
 
     m = TransportSecurityMiddleware(validador)
-    assert m._validate_host("aurora.pgdev.com.br") is True
+    assert m._validate_host("aurora.gomio.com.br") is True
     assert m._validate_host("127.0.0.1:8080") is True
     assert m._validate_host("127.0.0.1") is False
     assert m._validate_host("atacante.com") is False
