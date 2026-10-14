@@ -88,10 +88,25 @@ class _TetoPorIp:
         janela.append(agora)
 
 
-_limitar = _TetoPorIp(ESCRITAS_POR_IP, "Too many changes. Please wait a few minutes.")
-_limitar_sessoes = _TetoPorIp(
+_teto_escritas = _TetoPorIp(
+    ESCRITAS_POR_IP, "Too many changes. Please wait a few minutes."
+)
+_teto_sessoes = _TetoPorIp(
     SESSOES_POR_IP, "Too many sessions from this address. Please wait a few minutes."
 )
+
+
+# As dependencias sao FUNCOES de modulo, e nao as instancias acima. Com
+# `from __future__ import annotations`, o FastAPI le `request: Request` como texto
+# e o resolve pelos globais da funcao; o `__call__` de uma instancia nao traz esses
+# globais, entao `Request` virava um parametro de query obrigatorio: toda escrita
+# respondia 422 e o /openapi.json, 500 (27/09 a 14/10). Ver tests/test_erp_escrita.py.
+def _limitar(request: Request) -> None:
+    _teto_escritas(request)
+
+
+def _limitar_sessoes(request: Request) -> None:
+    _teto_sessoes(request)
 
 
 def _interno(request: Request) -> bool:
