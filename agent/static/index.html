@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clínica Aurora: um agente que grava numa agenda de verdade</title>
-<meta name="description" content="Demo ao vivo: um agente de IA que grava numa agenda de verdade, pede confirmação antes de alterar e recusa quando a regra da clínica não permite. O ERP em que ele grava é publicado ao lado.">
+<title>Aurora, clínica fictícia: agenda com escrita em sistema · demo Gomio</title>
+<meta name="description" content="Agenda com escrita em sistema: um agente que marca, remarca e cancela numa agenda e só grava depois da confirmação. Clínica, pacientes e ERP fictícios.">
 <meta name="author" content="Gomio">
 <meta name="theme-color" content="#14120e">
 
@@ -21,7 +21,7 @@
 <meta property="og:image" content="https://aurora.pgdev.com.br/static/og.png?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Clínica Aurora: demo ao vivo de um agente que grava numa agenda de verdade.">
+<meta property="og:image:alt" content="Aurora: demo de um agente que grava numa agenda fictícia e recusa quando a regra não deixa.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Um agente que grava na agenda, e recusa quando a regra não deixa">
 <meta name="twitter:description" content="Demo ao vivo: converse com o agente e veja a linha mudar no ERP.">
@@ -275,6 +275,9 @@
     .hero{padding-top:32px}
     .faixa{padding:12px 14px}
     .cabeca{padding:10px 14px;flex-wrap:wrap}
+    /* Os dois status e o botão somavam 352 px num cabeçalho de 336 px, e o
+       overflow do .console cortava o "Derrubar o ERP" no celular. */
+    .cabeca .dir{flex-wrap:wrap;white-space:normal;row-gap:6px}
     .chat,.log{padding-left:14px;padding-right:14px}
     .cenarios{padding-left:14px;padding-right:14px}
     .barra{padding:12px 14px 16px}
@@ -417,7 +420,7 @@
   <span><span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
   <nav aria-label="Links">
     <a href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="linkOperacoes"></a>
-    <a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
+    <a href="https://gomio.com.br/demonstracoes" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
     <a href="https://gomio.com.br/privacidade" target="_blank" rel="noopener" data-t="privacidade"></a>
   </nav>
 </footer>
@@ -427,6 +430,15 @@ const $ = (s) => document.querySelector(s);
 const chat = $("#chat"), log = $("#log"), agenda = $("#agenda");
 let ultimoEstadoAgenda = new Map();
 let encerrada = false;
+// Um id por carregamento da página, em toda chamada à API. Vista nova na mesma
+// sessão começa conversa nova no servidor: o F5 descarta a proposta pendente,
+// e outra aba não confirma o que só esta mostrou. randomUUID só existe em
+// contexto seguro; fora dele (http em rede local) vai um id aleatório em hex.
+const vista = (self.crypto && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+// Propostas retidas neste turno, mostradas quando ele termina.
+let pendentes = [];
 let recusas = 0;
 
 // Textos da interface. Tudo que a TELA diz passa por aqui; o que o MODELO diz
@@ -434,11 +446,11 @@ let recusas = 0;
 const T = {
   pt: {
     htmlLang: "pt-BR", locale: "pt-BR",
-    titulo: "Clínica Aurora: um agente que grava numa agenda de verdade",
+    titulo: "Aurora, clínica fictícia: agenda com escrita em sistema · demo Gomio",
     marcaSuf: "demo de operações",
     navErp: "API do ERP", navGomio: "o que a Gomio faz",
     heroTitulo: "Ela grava na agenda. Ou diz por que não.",
-    heroTexto: 'Converse com a assistente de uma clínica fictícia. A alteração vai por HTTP para um ERP separado, e cada decisão aparece ao lado, com a regra que decidiu.',
+    heroTexto: "Agenda com escrita em sistema: um agente que marca, remarca e cancela numa agenda e só grava depois da confirmação. O cenário é uma clínica fictícia; os pacientes e o sistema de agenda também são fictícios. Cada decisão aparece ao lado, com a regra que decidiu.",
     ficticia: "clínica fictícia, dados sintéticos",
     chaos: "Derrubar o ERP", chaosLigado: "Religar o ERP",
     reset: "Reiniciar", idiomaBotao: "EN",
@@ -451,9 +463,9 @@ const T = {
     cabecaAgenda: "agenda no ERP",
     rotuloErp: "ERP", rotuloAgente: "assistente",
     erpOnline: "no ar", erpDown: "fora do ar (503)", erpSemResposta: "sem resposta",
-    agenteOk: "respondendo", agenteIndisponivel: "indisponível", agenteSemDados: "ainda sem uso",
+    agenteOk: "no ar", agenteIndisponivel: "indisponível", agenteSemDados: "ainda sem uso",
     colConsulta: "Consulta", colPaciente: "Paciente", colProfissional: "Profissional", colInicio: "Início",
-    carregando: "carregando…", semConsultas: "nenhuma consulta", vagaAberta: "vaga aberta",
+    carregando: "carregando…", semConsultas: "nenhuma consulta", vagaAberta: "vaga aberta", cancelada: "cancelada",
     erpNota: 'Este ERP é outro processo, com API pública: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">documentação técnica</a> (em inglês).',
     cabecaLog: "registro de decisões",
     recusasRotulo: "recusas",
@@ -468,7 +480,7 @@ const T = {
     outraDemo: "Conversar com a recepcionista de voz da Gomio, pelo navegador",
     feitoPor: "Demo feita pela", outrosProjetos: "outros projetos",
     linkOperacoes: "operações", privacidade: "privacidade",
-    saudacao: "Oi! Sou a assistente da recepção. Consulto a agenda, remarco, cancelo e abro vagas. Antes de qualquer alteração, eu digo o que vou fazer e espero você confirmar. Pode escrever em qualquer idioma: respondo no seu.",
+    saudacao: "Oi! Sou a assistente de agenda da Clínica Aurora, uma clínica fictícia. Marco, remarco e cancelo consultas e abro vagas. Antes de qualquer alteração, digo o que vou fazer e espero você confirmar. Pode escrever em qualquer idioma: respondo no seu.",
     pensando: "pensando…",
     estados: {
       greeting: "início", qualifying: "entendendo o pedido", collecting: "reunindo detalhes",
@@ -476,10 +488,10 @@ const T = {
       escalated: "encerrada",
     },
     sugestoes: [
-      { rotulo: "Só consultar", msg: "O que tem na agenda do Dr. Bruno?", efeito: "Lista as consultas. Nada muda na agenda." },
+      { rotulo: "Só consultar", msg: "O que tem na agenda do Dr. Bruno?", efeito: "Mostra os horários ocupados e livres, sem nome de paciente. Nada muda." },
       { rotulo: "Remarcar com confirmação", msg: "Remarque a consulta da Ana para as 16h", efeito: "Propõe a mudança e espera o seu “sim”. Só grava depois." },
-      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "Pede confirmação. Ao confirmar, a regra recusa: faltam menos de 24 h e o motivo é obrigatório." },
-      { rotulo: "Fora do expediente", msg: "Passe a consulta da Ana para domingo às 10h", efeito: "A regra de expediente recusa. Nada é gravado." },
+      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "A regra pede o motivo antes de qualquer confirmação: faltam menos de 24 h." },
+      { rotulo: "Fora do expediente", msg: "Passe a consulta da Ana para domingo às 10h", efeito: "A regra de expediente recusa na primeira resposta, sem pedir confirmação. Nada é gravado." },
       { rotulo: "Fora do escopo", msg: "Escreva um poema sobre o mar", efeito: "Recusa curta. A conversa continua." },
       { rotulo: "Outro idioma", msg: "¿Qué hay en la agenda?", efeito: "Responde em espanhol, no idioma de quem escreveu." },
     ],
@@ -505,7 +517,26 @@ const T = {
     semConexao: "A conexão caiu. Nada garante que a mensagem chegou: confira a agenda antes de repetir um pedido de alteração.",
     erpCaiu: "O ERP desta sessão está fora do ar. Peça uma alteração e veja o que o agente faz: ele não confirma o que não gravou.",
     erpVoltou: "O ERP voltou. Se a conversa já foi encerrada, clique em Reiniciar.",
+    erpInalcancavel: "O ERP não respondeu. Nada mudou.",
     reiniciada: "Agenda e conversa reiniciadas.",
+    // A proposta pendente é descrita pela PÁGINA, a partir dos dados da
+    // proposta retida, e não pelo modelo: é o que a pessoa está aceitando.
+    pendente: (o) => `Aguardando o seu sim para: ${o}.`,
+    acoes: {
+      remarcar: (c, h) => `remarcar ${c} para ${h}`,
+      cancelar: (c) => `cancelar ${c}`,
+      marcar: (h, m) => `marcar uma consulta de ${m} min para ${h}`,
+      abrirVaga: (h, m) => `abrir uma vaga de ${m} min para ${h}`,
+    },
+    // Legenda dos códigos de regra, no title de cada linha do registro.
+    regras: {
+      cancel_window_requires_reason: "motivo exigido a menos de 24 h",
+      outside_business_hours: "fora do expediente",
+      slot_conflict: "horário ocupado",
+      slot_in_the_past: "horário no passado",
+      patient_daily_limit: "paciente já tem consulta no dia",
+      write_quota_exceeded: "limite de alterações da demo",
+    },
     log: {
       leitura: "ferramenta · leitura", escrita: "ferramenta · escrita", gate: "confirmação retida",
       gateTexto: (t) => `<b>${t}</b> não executada: esperando a pessoa confirmar`,
@@ -526,11 +557,11 @@ const T = {
   },
   en: {
     htmlLang: "en", locale: "en-US",
-    titulo: "Clínica Aurora: an agent that writes to a real schedule",
+    titulo: "Aurora, a fictional clinic: scheduling that writes to a system · Gomio demo",
     marcaSuf: "operations demo",
     navErp: "ERP API", navGomio: "what Gomio does",
     heroTitulo: "It writes to the schedule. Or says why not.",
-    heroTexto: 'Talk to the assistant of a fictional clinic. The change goes over HTTP to a separate ERP, and every decision shows up alongside, with the rule that made it.',
+    heroTexto: "Scheduling that writes to a system: an agent that books, reschedules and cancels appointments and only writes after you confirm. The setting is a fictional clinic; the patients and the scheduling system are fictional too. Every decision shows up alongside, with the rule that made it.",
     ficticia: "fictional clinic, synthetic data",
     chaos: "Take the ERP down", chaosLigado: "Bring the ERP back",
     reset: "Restart", idiomaBotao: "PT",
@@ -543,9 +574,9 @@ const T = {
     cabecaAgenda: "ERP schedule",
     rotuloErp: "ERP", rotuloAgente: "assistant",
     erpOnline: "online", erpDown: "down (503)", erpSemResposta: "no response",
-    agenteOk: "answering", agenteIndisponivel: "unavailable", agenteSemDados: "not used yet",
+    agenteOk: "online", agenteIndisponivel: "unavailable", agenteSemDados: "not used yet",
     colConsulta: "Appointment", colPaciente: "Patient", colProfissional: "Practitioner", colInicio: "Starts",
-    carregando: "loading…", semConsultas: "no appointments", vagaAberta: "open slot",
+    carregando: "loading…", semConsultas: "no appointments", vagaAberta: "open slot", cancelada: "cancelled",
     erpNota: 'This ERP is a separate process with a public API: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">API reference</a>.',
     cabecaLog: "decision log",
     recusasRotulo: "refusals",
@@ -560,7 +591,7 @@ const T = {
     outraDemo: "Talk to the Gomio voice receptionist, in the browser",
     feitoPor: "Demo built by", outrosProjetos: "other projects",
     linkOperacoes: "operations", privacidade: "privacy",
-    saudacao: "Hi! I'm the front-desk assistant. I can check the schedule, reschedule, cancel and open slots. Before any change I tell you what I'm about to do and wait for your confirmation. Write in any language, I'll answer in yours.",
+    saudacao: "Hi! I'm the scheduling assistant of Clínica Aurora, a fictional clinic. I book, reschedule and cancel appointments and open slots. Before any change I tell you what I'm about to do and wait for your confirmation. Write in any language, I'll answer in yours.",
     pensando: "thinking…",
     estados: {
       greeting: "start", qualifying: "reading the request", collecting: "collecting details",
@@ -568,10 +599,10 @@ const T = {
       escalated: "closed",
     },
     sugestoes: [
-      { rotulo: "Read only", msg: "What's on Dr. Bruno's schedule?", efeito: "Lists the appointments. Nothing changes." },
+      { rotulo: "Read only", msg: "What's on Dr. Bruno's schedule?", efeito: "Shows booked and free slots, without patient names. Nothing changes." },
       { rotulo: "Reschedule with confirmation", msg: "Move Ana's appointment to 4pm", efeito: "Proposes the change and waits for your “yes”. Writes only after." },
-      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "Asks for confirmation. Once you confirm, the rule refuses: under 24 h away, a reason is required." },
-      { rotulo: "Outside opening hours", msg: "Move Ana's appointment to Sunday at 10am", efeito: "The opening-hours rule refuses. Nothing is written." },
+      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "The rule asks for a reason before any confirmation: it's under 24 h away." },
+      { rotulo: "Outside opening hours", msg: "Move Ana's appointment to Sunday at 10am", efeito: "The opening-hours rule refuses in the first reply, without asking for confirmation. Nothing is written." },
       { rotulo: "Off-scope", msg: "Write me a poem about the sea", efeito: "Short refusal. The conversation goes on." },
       { rotulo: "Another language", msg: "¿Qué hay en la agenda?", efeito: "Answers in Spanish, the language it was asked in." },
     ],
@@ -595,7 +626,23 @@ const T = {
     semConexao: "Lost the connection. There's no guarantee the message arrived: check the schedule before repeating a change request.",
     erpCaiu: "The ERP is down for this session. Ask for a change and watch what the agent does: it won't confirm what it didn't write.",
     erpVoltou: "The ERP is back. If the conversation was already closed, click Restart.",
+    erpInalcancavel: "The ERP didn't respond. Nothing changed.",
     reiniciada: "Schedule and conversation restarted.",
+    pendente: (o) => `Waiting for your yes to: ${o}.`,
+    acoes: {
+      remarcar: (c, h) => `reschedule ${c} to ${h}`,
+      cancelar: (c) => `cancel ${c}`,
+      marcar: (h, m) => `book a ${m}-minute appointment for ${h}`,
+      abrirVaga: (h, m) => `open a ${m}-minute slot for ${h}`,
+    },
+    regras: {
+      cancel_window_requires_reason: "reason required under 24 h",
+      outside_business_hours: "outside opening hours",
+      slot_conflict: "slot taken",
+      slot_in_the_past: "slot in the past",
+      patient_daily_limit: "patient already booked that day",
+      write_quota_exceeded: "demo change limit",
+    },
     log: {
       leitura: "tool · read", escrita: "tool · write", gate: "confirmation held",
       gateTexto: (t) => `<b>${t}</b> not executed: waiting for the person to confirm`,
@@ -641,18 +688,24 @@ function aplicarIdioma() {
 
 // Uma fala da conversa. Quem falou vai no rótulo; o texto vai por textContent,
 // nunca innerHTML: a fala do modelo e a do visitante são dados, não marcação.
-function bolha(texto, quem) {
+// `data-t` no rótulo, e no texto quando ele vem do catálogo (`chave`), é o que
+// deixa a troca de idioma retraduzir as bolhas já desenhadas: antes a versão EN
+// mantinha a saudação e o "ASSISTENTE" em português.
+function bolha(texto, quem, chave) {
   const el = document.createElement("div");
   if (quem === "sistema" || quem === "neutro") {
     el.className = quem === "neutro" ? "sistema neutro" : "sistema";
     el.textContent = texto;
+    if (chave) el.dataset.t = chave;
   } else {
     el.className = "fala " + quem;
     const rotulo = document.createElement("span");
     rotulo.className = "micro";
-    rotulo.textContent = quem === "eu" ? t().voce : t().assistente;
+    rotulo.dataset.t = quem === "eu" ? "voce" : "assistente";
+    rotulo.textContent = t()[rotulo.dataset.t];
     const p = document.createElement("p");
     p.textContent = texto;
+    if (chave) p.dataset.t = chave;
     el.append(rotulo, p);
   }
   chat.appendChild(el);
@@ -660,10 +713,11 @@ function bolha(texto, quem) {
   return el;
 }
 
-function evento(tag, html, classe = "") {
+function evento(tag, html, classe = "", titulo = "") {
   if (log.querySelector(".vazio")) log.innerHTML = "";
   const el = document.createElement("div");
   el.className = "ev " + classe;
+  if (titulo) el.title = titulo;
   el.innerHTML = `<span class="tag">${tag}</span><span class="txt">${html}</span>`;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
@@ -760,7 +814,14 @@ async function carregarSaude() {
 async function carregarAgenda() {
   carregarSaude();
   try {
-    const r = await fetch("/api/estado");
+    const r = await fetch("/api/estado", { headers: { "X-Aurora-Vista": vista } });
+    // 503 é o ERP inalcançável (container parado, rede caída). Ler o corpo como
+    // se fosse o estado mostrava "no ar" com o ERP fora.
+    if (!r.ok) {
+      $("#erpstatus").textContent = t().erpSemResposta;
+      $("#erpstatus").classList.add("alerta");
+      return;
+    }
     const d = await r.json();
     $("#erpstatus").textContent = d.down ? t().erpDown : t().erpOnline;
     $("#erpstatus").classList.toggle("alerta", !!d.down);
@@ -784,6 +845,8 @@ async function carregarAgenda() {
       const tr = document.createElement("tr");
       tr.dataset.id = c.id;
       tr.className = (c.status === "cancelada" ? "cancelada " : "") + (mudou ? "mudou" : "");
+      // O tachado sozinho não chega ao leitor de tela.
+      if (c.status === "cancelada") tr.setAttribute("aria-label", `${c.id}: ${t().cancelada}`);
       // Vaga aberta vem com paciente_nome vazio, e vazio na coluna "Paciente"
       // lia como consulta que perdeu o nome. Ela não perdeu: não tem titular.
       const paciente = c.paciente_nome
@@ -825,6 +888,7 @@ function trazerPainel() {
 
 async function enviar(texto, efeito) {
   if (encerrada) return;
+  pendentes = [];
   if (window.innerWidth > 900) trazerPainel();
   $("#enviar").disabled = true;
   $("#entrada").value = "";
@@ -844,7 +908,7 @@ async function enviar(texto, efeito) {
   try {
     const r = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Aurora-Vista": vista },
       body: JSON.stringify({ mensagem: texto, idioma }),
     });
     if (!r.ok) {
@@ -896,13 +960,15 @@ function renderizar(tipo, d) {
       // Sem esta linha o log mostrava a MESMA escrita duas vezes (a barrada e
       // a executada) sem nada explicando a diferença.
       evento(L.gate, L.gateTexto(esc(d.tool)), "negado");
+      pendentes.push(descreverProposta(d.tool, d.input || {}));
       break;
     case "policy":
       if (!d.allowed) contarRecusa();
       evento(L.regra,
         `<b>${esc(d.regra)}</b> → ${d.allowed ? L.permitida : `${L.recusada}: <b>${esc(d.reason_code)}</b>`}`
-          + (d.rules_version ? `<span class="versao">${L.versaoRegra} ${esc(d.rules_version)}</span>` : ""),
-        d.allowed ? "permitido" : "negado");
+          + (d.rules_version ? `<span class="versao"> · ${L.versaoRegra} ${esc(d.rules_version)}</span>` : ""),
+        d.allowed ? "permitido" : "negado",
+        t().regras[d.reason_code] || "");
       break;
     case "usage": {
       // `cache read` fica visivel porque e o numero que denuncia invalidador
@@ -910,7 +976,7 @@ function renderizar(tipo, d) {
       const cache = d.cache_hit ? L.cacheLido(d.cache_read_tokens.toLocaleString(t().locale)) : L.semCache;
       evento(L.llm,
         `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms, <b>${usd(d.usd_turno)}</b>, ${cache}`
-          + (d.rates_version ? `<span class="versao">${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
+          + (d.rates_version ? `<span class="versao"> · ${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
         d.cache_hit ? "medida" : "medida semcache");
       mostrarGasto(d.usd_conversa);
       break;
@@ -944,7 +1010,28 @@ function renderizar(tipo, d) {
       // Um turno pode terminar sem nenhuma chamada paga. Sem isto o total
       // ficaria parado no valor do turno anterior.
       if (d.usd_conversa !== undefined) mostrarGasto(d.usd_conversa);
+      // A proposta retida aparece depois da fala do modelo, como a frase da
+      // página sobre o que o "sim" vai gravar.
+      for (const o of pendentes) bolha(t().pendente(o), "sistema");
+      pendentes = [];
       break;
+  }
+}
+
+// O horário da proposta sem offset é o da clínica, como no servidor. Sem isto o
+// navegador o leria no fuso de quem visita.
+function instante(s) {
+  return typeof s === "string" && /T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s) ? s + "-03:00" : s;
+}
+
+function descreverProposta(tool, i) {
+  const A = t().acoes;
+  switch (tool) {
+    case "remarcar_consulta": return A.remarcar(i.consulta_id, hora(instante(i.novo_inicio)));
+    case "cancelar_consulta": return A.cancelar(i.consulta_id);
+    case "marcar_consulta": return A.marcar(hora(instante(i.inicio)), i.duracao_min);
+    case "abrir_vaga": return A.abrirVaga(hora(instante(i.inicio)), i.duracao_min);
+    default: return tool;
   }
 }
 
@@ -974,13 +1061,13 @@ $("#form").addEventListener("submit", (e) => {
 
 $("#chaos").addEventListener("click", async () => {
   const ligar = $("#chaos").getAttribute("aria-pressed") !== "true";
-  await fetch(`/api/chaos?ligado=${ligar}`, { method: "POST" });
+  const r = await fetch(`/api/chaos?ligado=${ligar}`, { method: "POST", headers: { "X-Aurora-Vista": vista } });
   await carregarAgenda();
-  bolha(ligar ? t().erpCaiu : t().erpVoltou, "sistema");
+  bolha(!r.ok ? t().erpInalcancavel : ligar ? t().erpCaiu : t().erpVoltou, "sistema");
 });
 
 $("#reset").addEventListener("click", async () => {
-  await fetch("/api/reset", { method: "POST" });
+  await fetch("/api/reset", { method: "POST", headers: { "X-Aurora-Vista": vista } });
   chat.innerHTML = "";
   log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
   ultimoEstadoAgenda = new Map();
@@ -991,8 +1078,8 @@ $("#reset").addEventListener("click", async () => {
   recusas = 0;
   $("#recusas").textContent = "0";
   travar(false);
-  bolha(t().saudacao, "ela");
-  bolha(t().reiniciada, "neutro");
+  bolha(t().saudacao, "ela", "saudacao");
+  bolha(t().reiniciada, "neutro", "reiniciada");
   carregarAgenda();
 });
 
@@ -1005,7 +1092,7 @@ $("#idioma").addEventListener("click", () => {
 });
 
 aplicarIdioma();
-bolha(t().saudacao, "ela");
+bolha(t().saudacao, "ela", "saudacao");
 carregarAgenda();
 carregarProvas();
 </script>

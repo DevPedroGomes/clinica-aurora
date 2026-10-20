@@ -38,9 +38,11 @@ def _dia_local(data: str) -> datetime:
     return datetime.fromisoformat(f"{data}T12:00:00").replace(tzinfo=BAHIA)
 
 
+# Sem promessa de pessoa: a demo não tem ninguém de plantão, e "vou chamar
+# alguém da recepção" contradizia a tela, que diz que o encaminhamento é simulado.
 INDISPONIVEL = ToolError(
     code="erp_unavailable",
-    user_message="Não consegui acessar a agenda agora. Vou chamar alguém da recepção para você.",
+    user_message="Não consegui acessar a agenda agora. Nada foi alterado.",
 )
 
 
