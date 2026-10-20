@@ -20,7 +20,11 @@ class Decision:
     """Sempre presente, inclusive quando allowed=True. É a chave do audit log."""
 
     explanation_hint: str
-    """Dica de REDAÇÃO para o modelo, nunca a regra.
+    """Chave da dica de REDAÇÃO para o modelo (`dica.*` em `src/i18n.py`), nunca a regra.
+
+    O texto sai do catálogo no idioma da sessão. O motor devolve a chave porque
+    é puro e não sabe em que língua a conversa está; antes ele devolvia o texto
+    em português, e uma sessão em inglês recebia a dica em português.
 
     ✅ "diga que precisa de um motivo para cancelar em cima da hora"
     ❌ "a janela de cancelamento é de 24 horas"

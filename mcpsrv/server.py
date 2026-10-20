@@ -64,6 +64,7 @@ from src.adapters.erp import ErpAdapter  # noqa: E402
 from src.policy.engine import PolicyEngine  # noqa: E402
 from src.tools.agenda import (  # noqa: E402
     abrir_vaga,
+    buscar_paciente,
     cancelar_consulta,
     listar_agenda,
     marcar_consulta,
@@ -81,6 +82,7 @@ SESSAO_TTL = 2 * 60 * 60
 MAX_SESSOES = 200
 
 HANDLERS = {
+    "buscar_paciente": buscar_paciente,
     "listar_agenda": listar_agenda,
     "remarcar_consulta": remarcar_consulta,
     "cancelar_consulta": cancelar_consulta,
@@ -114,8 +116,9 @@ servidor = FastMCP(
         "como recusa, com o código da regra. Chame `ler_politica` antes de "
         "prometer qualquer coisa a alguém, e `ler_log_de_decisao` para mostrar o "
         "que foi decidido e por quê. Toda escrita precisa de duas chamadas: a "
-        "primeira devolve a proposta e um token de confirmação sem gravar nada, "
-        "e você deve mostrá-la à pessoa antes de chamar a segunda com o token."
+        "primeira roda a política sem gravar nada e devolve a recusa da regra ou "
+        "a proposta com um token de confirmação; mostre a proposta à pessoa "
+        "antes de chamar a segunda com o token."
     ),
 )
 
@@ -200,17 +203,42 @@ async def _executar(
         )
 
     if spec.scope == "write":
+        if not confirmacao:
+            # A prévia roda a política ANTES de emitir o token: uma escrita que
+            # a regra barra não tem o que confirmar, e o cliente recebe a recusa
+            # com o código da regra já na primeira chamada.
+            antes = len(sessao.ctx.audit)
+            previa = await HANDLERS[nome](sessao.ctx, dados, executar=False)
+            if isinstance(previa, ToolError):
+                return _erro(
+                    previa.code,
+                    previa.user_message,
+                    decisoes=_decisoes(sessao, antes),
+                )
         recusa = _checar_escrita(nome, dados, sessao, confirmacao)
         if recusa is not None:
             return recusa
 
     antes = len(sessao.ctx.audit)
     saida = await HANDLERS[nome](sessao.ctx, dados)
+    decisoes = _decisoes(sessao, antes)
 
-    # As decisões de política tomadas DENTRO do handler viram parte da resposta.
-    # Sem isto o cliente recebe "não deu" e não sabe qual regra decidiu — que é
-    # justamente o que esta demo existe para mostrar.
-    decisoes = [
+    if isinstance(saida, ToolError):
+        return _erro(saida.code, saida.user_message, decisoes=decisoes)
+
+    # `escritas_realizadas` NÃO é incrementado aqui: quem incrementa é o próprio
+    # handler em `agenda.py`, e contar de novo cortaria o teto pela metade sem
+    # que nenhum teste do agente percebesse.
+    return {"ok": True, "resultado": saida, "decisoes": decisoes}
+
+
+def _decisoes(sessao: Sessao, antes: int) -> list[dict[str, Any]]:
+    """As decisões de política gravadas desde `antes`, no formato da resposta.
+
+    Sem isto o cliente recebe "não deu" e não sabe qual regra decidiu, que é
+    justamente o que esta demo existe para mostrar.
+    """
+    return [
         {
             "regra": e.tool,
             "permitido": e.output.get("allowed"),
@@ -220,14 +248,6 @@ async def _executar(
         for e in sessao.ctx.audit[antes:]
         if e.kind == "policy_decision"
     ]
-
-    if isinstance(saida, ToolError):
-        return _erro(saida.code, saida.user_message, decisoes=decisoes)
-
-    # `escritas_realizadas` NÃO é incrementado aqui: quem incrementa é o próprio
-    # handler em `agenda.py`, e contar de novo cortaria o teto pela metade sem
-    # que nenhum teste do agente percebesse.
-    return {"ok": True, "resultado": saida, "decisoes": decisoes}
 
 
 def _checar_escrita(
@@ -308,14 +328,22 @@ def _checar_escrita(
 # um input model ganhar campo e a assinatura aqui nao, o teste quebra.
 
 
+@servidor.tool(description=REGISTRY["buscar_paciente"].description)
+async def buscar_paciente_tool(ctx: Context, nome: str) -> dict[str, Any]:
+    return await _executar("buscar_paciente", {"nome": nome}, ctx)
+
+
 @servidor.tool(description=REGISTRY["listar_agenda"].description)
 async def listar_agenda_tool(
     ctx: Context,
+    paciente_id: str | None = None,
     profissional_id: str | None = None,
     data: str | None = None,
 ) -> dict[str, Any]:
     return await _executar(
-        "listar_agenda", {"profissional_id": profissional_id, "data": data}, ctx
+        "listar_agenda",
+        {"paciente_id": paciente_id, "profissional_id": profissional_id, "data": data},
+        ctx,
     )
 
 
@@ -410,15 +438,21 @@ async def ler_politica(ctx: Context) -> dict[str, Any]:
             ),
             "expediente": (
                 "Nada é agendado ou remarcado fora do horário de funcionamento, "
-                "nem para o passado, nem para um horário já ocupado."
+                "nem para o passado, nem para um horário já ocupado. Códigos: "
+                "outside_business_hours, slot_in_the_past, slot_conflict."
+            ),
+            "consultas_por_paciente": (
+                "Cada paciente tem no máximo uma consulta por dia, somando os "
+                "profissionais. Código: patient_daily_limit."
             ),
             "teto_de_escritas": (
                 "Há um limite de escritas por sessão. Não é regra da clínica: é "
                 "freio de segurança contra agente em laço."
             ),
             "confirmacao": (
-                "Toda escrita exige duas chamadas. A primeira devolve a proposta "
-                "e um token, sem gravar nada."
+                "Toda escrita exige duas chamadas. A primeira roda a política sem "
+                "gravar nada: devolve a recusa com o código da regra, ou a "
+                "proposta e um token."
             ),
         },
         "arquivo_de_origem": "agent/src/policy/rules.yaml",

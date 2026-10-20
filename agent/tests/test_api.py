@@ -37,9 +37,15 @@ def api(monkeypatch, tmp_path):
         # próprio abaixo.
         custo_por_turno = 10_000  # US$ 0,01 em micro-dólares
 
+        def __init__(self) -> None:
+            # O que o turno ENCONTROU confirmável, para provar que a vista nova
+            # descarta a proposta pendente antes de o turno começar.
+            self.confirmacoes_vistas: list[set[str]] = []
+
         async def turno(self, conv, texto, ctx):
             from src.agent import Evento
 
+            self.confirmacoes_vistas.append(set(ctx.confirmacoes))
             ctx.escritas_realizadas += 1
             ctx.custo_micros += self.custo_por_turno
             yield Evento("message", {"texto": f"ok: {texto}"})
@@ -252,3 +258,102 @@ def test_schema_da_api_interna_nao_fica_publico(api):
     """Desligar /docs não desliga /openapi.json — e ele entrega /api/chaos,
     /api/reset e todos os parâmetros de bandeja."""
     assert cliente(api).get("/openapi.json").status_code == 404
+
+
+# -- vista: recarregar a página começa conversa nova --------------------------
+#
+# O "sim" cego: a conversa e as confirmações vivem no servidor, presas ao
+# cookie, enquanto o chat da página volta vazio depois do F5. Quem recarregava
+# e digitava "sim" executava uma proposta que não estava mais na tela.
+
+VISTA_A = {"X-Aurora-Vista": "vista-aaaa-1"}
+VISTA_B = {"X-Aurora-Vista": "vista-bbbb-2"}
+ESTADO_OK = httpx.Response(200, json={"down": False, "consultas": []})
+
+
+def test_recarregar_a_pagina_descarta_a_confirmacao_pendente(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "cancela"}, headers=VISTA_A)
+    sessao = next(iter(api._sessoes.values()))
+    sessao.ctx.confirmacoes.add("cancelar_consulta:{}")
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(return_value=ESTADO_OK)
+        c.get("/api/estado", headers=VISTA_B)
+    assert sessao.ctx.confirmacoes == set()
+    assert sessao.conversa.state.value == "greeting"
+
+
+def test_mesma_vista_nao_zera_a_conversa(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "cancela"}, headers=VISTA_A)
+    sessao = next(iter(api._sessoes.values()))
+    conversa = sessao.conversa
+    sessao.ctx.confirmacoes.add("cancelar_consulta:{}")
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(return_value=ESTADO_OK)
+        c.get("/api/estado", headers=VISTA_A)
+    assert sessao.conversa is conversa
+    assert sessao.ctx.confirmacoes == {"cancelar_consulta:{}"}
+
+
+def test_outra_aba_nao_confirma_a_proposta_desta(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "cancela"}, headers=VISTA_A)
+    sessao = next(iter(api._sessoes.values()))
+    sessao.ctx.confirmacoes.add("cancelar_consulta:{}")
+    c.post("/api/chat", json={"mensagem": "sim"}, headers=VISTA_B)
+    assert api.agente.confirmacoes_vistas[-1] == set()
+
+
+def test_recarregar_nao_devolve_o_teto_de_escritas(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "remarca"}, headers=VISTA_A)
+    sessao = next(iter(api._sessoes.values()))
+    assert sessao.ctx.escritas_realizadas == 1
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(return_value=ESTADO_OK)
+        estado = c.get("/api/estado", headers=VISTA_B).json()
+    assert estado["conversa"]["escritas"] == 1
+
+
+def test_vista_fora_do_formato_nao_muda_nada(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "cancela"}, headers=VISTA_A)
+    sessao = next(iter(api._sessoes.values()))
+    sessao.ctx.confirmacoes.add("cancelar_consulta:{}")
+    with respx.mock:
+        respx.get(f"{ERP}/admin/estado").mock(return_value=ESTADO_OK)
+        for estranha in ("curta", "com espaco e !", "x" * 65):
+            c.get("/api/estado", headers={"X-Aurora-Vista": estranha})
+        c.get("/api/estado")
+    assert sessao.ctx.confirmacoes == {"cancelar_consulta:{}"}
+
+
+def test_segunda_mensagem_com_turno_em_andamento_recebe_409(api):
+    c = cliente(api)
+    c.post("/api/chat", json={"mensagem": "oi"})
+    sessao = next(iter(api._sessoes.values()))
+    sessao.lock.locked = lambda: True  # turno anterior ainda em andamento
+    assert c.post("/api/chat", json={"mensagem": "sim"}).status_code == 409
+
+
+# -- ERP inalcançável não vira 500 --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("metodo", "caminho", "rota"),
+    [
+        ("get", "/api/estado", ("GET", "/admin/estado")),
+        ("post", "/api/chaos?ligado=true", ("POST", "/admin/chaos")),
+        ("post", "/api/reset", ("POST", "/admin/reset")),
+    ],
+)
+def test_estado_com_erp_inalcancavel_responde_503(api, metodo, caminho, rota):
+    c = cliente(api)
+    with respx.mock:
+        respx.route(method=rota[0], url=f"{ERP}{rota[1]}").mock(
+            side_effect=httpx.ConnectError("sem rota")
+        )
+        r = getattr(c, metodo)(caminho)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "ERP unreachable."}

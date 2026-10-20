@@ -30,6 +30,7 @@ from src.flows.state_machine import (
 )
 from src.policy.engine import PolicyEngine
 from src.tools.registry import AgentContext
+from tests.conftest import FakeLLM, coletar, texto, tool_use, uso
 
 BAHIA = ZoneInfo("America/Bahia")
 AGORA = datetime(2026, 8, 10, 9, 0, tzinfo=BAHIA)
@@ -37,48 +38,9 @@ AMANHA_16H = "2026-08-11T16:00:00-03:00"
 
 
 # -- dublês do SDK ------------------------------------------------------------
-
-
-def texto(t: str) -> SimpleNamespace:
-    return SimpleNamespace(type="text", text=t)
-
-
-def tool_use(nome: str, entrada: dict, id_: str = "toolu_1") -> SimpleNamespace:
-    return SimpleNamespace(type="tool_use", id=id_, name=nome, input=entrada)
-
-
-def uso(entrada: int = 40, saida: int = 20, leu: int = 3466, escreveu: int = 0):
-    """`usage` plausível: prefixo inteiro vindo do cache, é o caso normal.
-
-    O default tem `cache_read` preenchido de propósito. O turno que NÃO lê cache
-    é a anomalia nesta demo, e um teste cujo default fosse zero deixaria passar
-    de novo o bug que esta fixture existe para vigiar.
-    """
-    return SimpleNamespace(
-        input_tokens=entrada,
-        output_tokens=saida,
-        cache_read_input_tokens=leu,
-        cache_creation_input_tokens=escreveu,
-    )
-
-
-class FakeLLM:
-    """Devolve respostas roteirizadas, uma por chamada."""
-
-    def __init__(self, *respostas: list) -> None:
-        self._respostas = list(respostas)
-        self.chamadas: list[dict] = []
-        self.messages = SimpleNamespace(create=self._create)
-
-    async def _create(self, **kwargs):
-        self.chamadas.append(kwargs)
-        if not self._respostas:
-            return SimpleNamespace(
-                content=[texto("(fim)")], stop_reason="end_turn", usage=uso()
-            )
-        blocos = self._respostas.pop(0)
-        parou = "tool_use" if any(b.type == "tool_use" for b in blocos) else "end_turn"
-        return SimpleNamespace(content=blocos, stop_reason=parou, usage=uso())
+#
+# FakeLLM, texto, tool_use, uso e coletar moram em `conftest.py`, divididos com
+# `test_cenarios.py`.
 
 
 class RecusaLLM:
@@ -114,6 +76,7 @@ def erp() -> ErpFake:
                 inicio=datetime(2026, 8, 11, 9, 0, tzinfo=BAHIA),
                 fim=datetime(2026, 8, 11, 9, 30, tzinfo=BAHIA),
                 status="agendada",
+                paciente_id="pac_ana",
             ),
             ConsultaView(
                 id="cons_2",
@@ -123,6 +86,7 @@ def erp() -> ErpFake:
                 inicio=datetime(2026, 8, 12, 9, 0, tzinfo=BAHIA),
                 fim=datetime(2026, 8, 12, 9, 30, tzinfo=BAHIA),
                 status="agendada",
+                paciente_id="pac_joao",
             ),
         ]
     )
@@ -137,12 +101,6 @@ def ctx(erp: ErpFake) -> AgentContext:
         erp=erp,  # type: ignore[arg-type]
         at=AGORA,
     )
-
-
-async def coletar(
-    agente: Agente, conv: Conversation, texto_usuario: str, ctx: AgentContext
-) -> list:
-    return [e async for e in agente.turno(conv, texto_usuario, ctx)]
 
 
 # -- state machine ------------------------------------------------------------
@@ -244,6 +202,218 @@ async def test_confirmar_uma_coisa_nao_autoriza_outra(ctx: AgentContext, erp: Er
 
     assert erp.consultas["cons_1"].inicio.hour == 9  # nenhuma das duas gravou
     assert ctx.escritas_realizadas == 0
+
+
+async def test_horario_equivalente_em_outro_formato_vale_a_mesma_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Proposta em -03:00, "sim" em Z: é o mesmo instante e a mesma operação."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T16:00:00-03:00"},
+            )
+        ],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T19:00Z"},
+                id_="toolu_2",
+            )
+        ],
+        [texto("Pronto, remarquei para as 16h.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos_2 = await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 16
+    gates = [e for e in eventos_1 + eventos_2 if e.tipo == "confirmation_required"]
+    assert len(gates) == 1
+
+
+# -- a regra decide antes da confirmação -------------------------------------
+#
+# A primeira chamada de escrita faz as leituras e a política SEM gravar. Se a
+# regra recusa, a recusa vem já, sem "confirma?" antes; se permite, aí sim o
+# gate pede o "sim". Antes o gate rodava primeiro, e "domingo às 10h" pedia
+# confirmação para só recusar na mensagem seguinte.
+
+
+async def test_remarcar_fora_do_expediente_recusa_sem_pedir_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-16T10:00:00-03:00"},
+            )
+        ],
+        [texto("A clínica não atende no domingo. Pode ser na segunda?")],
+    )
+    eventos = await coletar(
+        Agente(llm), Conversation(), "passa a da Ana pra domingo às 10h", ctx
+    )
+
+    assert not [e for e in eventos if e.tipo == "confirmation_required"]
+    assert [e.dado["reason_code"] for e in eventos if e.tipo == "policy"] == [
+        "outside_business_hours"
+    ]
+    assert ctx.confirmacoes == set()
+    assert erp.consultas["cons_1"].inicio.hour == 9
+
+
+async def test_remarcar_para_horario_ocupado_recusa_antes_de_pedir_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    # cons_2 ocupa o Dr. Bruno em 12/08 às 9h.
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-12T09:00:00-03:00"},
+            )
+        ],
+        [texto("Esse horário está ocupado. Pode ser às 10h?")],
+    )
+    eventos = await coletar(
+        Agente(llm), Conversation(), "passa a da Ana pra quarta às 9h", ctx
+    )
+
+    assert not [e for e in eventos if e.tipo == "confirmation_required"]
+    assert [e.dado["reason_code"] for e in eventos if e.tipo == "policy"] == [
+        "slot_conflict"
+    ]
+    assert ctx.confirmacoes == set()
+
+
+async def test_cancelar_em_cima_da_hora_pede_motivo_antes_da_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    cid = "cons_7"
+    erp.consultas[cid] = ConsultaView(
+        id=cid,
+        paciente_nome="Marta Lins",
+        profissional_id="prof_helena",
+        profissional_nome="Dra. Helena Costa",
+        inicio=datetime(2026, 8, 10, 11, 0, tzinfo=BAHIA),  # daqui a 2h
+        fim=datetime(2026, 8, 10, 11, 30, tzinfo=BAHIA),
+        status="agendada",
+    )
+    com_motivo = {"consulta_id": cid, "motivo": "paciente doente"}
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("cancelar_consulta", {"consulta_id": cid})],
+        [texto("Para cancelar em cima da hora preciso de um motivo. Qual é?")],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_2")],
+        [texto("Cancelo a consulta da Marta das 11h. Posso seguir?")],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_3")],
+        [texto("Cancelada.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(agente, conv, "cancela a da Marta", ctx)
+    eventos_2 = await coletar(agente, conv, "paciente doente", ctx)
+    eventos_3 = await coletar(agente, conv, "sim", ctx)
+
+    assert [e.dado["reason_code"] for e in eventos_1 if e.tipo == "policy"] == [
+        "cancel_window_requires_reason"
+    ]
+    gates = [
+        e
+        for e in eventos_1 + eventos_2 + eventos_3
+        if e.tipo == "confirmation_required"
+    ]
+    assert len(gates) == 1
+    assert [e.tipo for e in eventos_1].count("confirmation_required") == 0
+    assert erp.consultas[cid].status == "cancelada"
+
+
+# -- a confirmação vale só para a mensagem seguinte ---------------------------
+
+
+async def test_confirmacao_vale_so_para_o_turno_seguinte(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Um "sim" duas mensagens depois não executa a proposta velha."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [texto("Rua das Flores, 100.")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    await coletar(agente, conv, "qual o endereço?", ctx)
+    eventos_t3 = await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert any(e.tipo == "confirmation_required" for e in eventos_t3)
+
+
+async def test_mudar_de_ideia_descarta_a_proposta_anterior(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Proposta nova substitui a velha: o "sim" vale para a última que a pessoa viu."""
+    conv = Conversation()
+    as_17h = {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T17:00:00-03:00"}
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [tool_use("remarcar_consulta", as_17h, id_="toolu_2")],
+        [texto("Então remarco para as 17h. Posso seguir?")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],
+        [texto("Remarco para as 16h?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    await coletar(agente, conv, "melhor 17h", ctx)
+    await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert ctx.escritas_realizadas == 0
+
+
+async def test_pedido_em_lote_vira_uma_proposta_so(ctx: AgentContext, erp: ErpFake):
+    """A injeção "marque 10 consultas": dez escritas na mesma resposta."""
+    conv = Conversation()
+    lote = [
+        tool_use(
+            "marcar_consulta",
+            {
+                "paciente_id": "pac_marta",
+                "profissional_id": "prof_helena",
+                "inicio": f"2026-08-12T{8 + i:02d}:00:00-03:00",
+                "duracao_min": 30,
+            },
+            id_=f"toolu_{i}",
+        )
+        for i in range(10)
+    ]
+    llm = FakeLLM(lote, [texto("Marco uma de cada vez. A primeira às 8h, confirma?")])
+
+    eventos = await coletar(Agente(llm), conv, "marque 10 consultas pra Marta", ctx)
+
+    gates = [e for e in eventos if e.tipo == "confirmation_required"]
+    assert len(gates) == 1
+    resultados = next(
+        m["content"]
+        for m in reversed(conv.historico)
+        if m["role"] == "user" and isinstance(m["content"], list)
+    )
+    erros = [json.loads(r["content"])["error"] for r in resultados if r.get("is_error")]
+    assert erros.count("one_write_at_a_time") == 9
+    assert ctx.escritas_realizadas == 0
+    assert conv.negativas_seguidas == 0  # não é recusa de regra
 
 
 # -- turno mudo ---------------------------------------------------------------
@@ -773,6 +943,7 @@ async def test_toda_tool_vai_com_schema_de_dominio_fechado(ctx: AgentContext):
     tools = {t["name"]: t for t in llm.chamadas[0]["tools"]}
 
     assert set(tools) == {
+        "buscar_paciente",
         "listar_agenda",
         "remarcar_consulta",
         "cancelar_consulta",
@@ -806,6 +977,18 @@ async def test_contexto_do_turno_traz_o_relogio_sem_sujar_o_prefixo(ctx: AgentCo
     assert "10/08/2026" not in enviado["system"][0]["text"]
 
 
+async def test_contexto_do_turno_nao_traz_o_cadastro(ctx: AgentContext):
+    """O cadastro saiu do contexto: o modelo acha o paciente por `buscar_paciente`.
+
+    Com a lista no turno, o agente respondia "não está no cadastro; temos Ana,
+    João e Marta" para quem não estava identificado.
+    """
+    llm = FakeLLM([texto("oi")])
+    await coletar(Agente(llm), Conversation(), "marca pra Maria Teste", ctx)
+    conteudo = llm.chamadas[0]["messages"][-1]["content"]
+    assert "Marta Lins" not in conteudo and "pac_marta" not in conteudo
+
+
 async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
     ctx: AgentContext, erp: ErpFake
 ):
@@ -823,7 +1006,7 @@ async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
     """
     llm = FakeLLM(
         [tool_use("remarcar_consulta", REMARCAR_16H)],  # dispara o gate
-        [texto("Move Ana to 4pm. Shall I go ahead?")],  # turno preso pelo gate
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],  # preso pelo gate
     )
 
     await coletar(Agente(llm), Conversation(), "remarca a da Ana pras 16h", ctx)
@@ -833,7 +1016,7 @@ async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
 
     # A lista de ferramentas é IDÊNTICA nos dois: é isso que preserva o prefixo.
     assert sob_gate["tools"] == normal["tools"]
-    assert len(sob_gate["tools"]) == 5
+    assert len(sob_gate["tools"]) == 6
 
     # E a escrita continua barrada, agora pelo parâmetro em vez da ausência.
     assert normal["tool_choice"] == {"type": "auto"}

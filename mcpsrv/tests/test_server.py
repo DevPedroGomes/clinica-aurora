@@ -153,16 +153,32 @@ async def test_token_certo_executa_e_nao_serve_duas_vezes(ctx: CtxFalso):
 
 
 async def test_politica_recusa_e_devolve_o_codigo_da_regra(ctx: CtxFalso):
-    """O ponto da demo: quem recusa é este processo, não o modelo do outro lado."""
+    """O ponto da demo: quem recusa é este processo, não o modelo do outro lado.
+
+    A recusa vem já na primeira chamada: a prévia roda a política antes de
+    emitir o token, e não há o que confirmar numa escrita que a regra barra.
+    """
     campos = {"consulta_id": "cons_2"}
-    p = await chamar("cancelar_consulta", ctx, **campos)
-    r = await chamar("cancelar_consulta", ctx, **campos, confirmacao=p["confirmacao"])
+    r = await chamar("cancelar_consulta", ctx, **campos)
 
     assert r["ok"] is False
     assert r["erro"] == "cancel_window_requires_reason"
     regras = {(d["regra"], d["codigo"]) for d in r["decisoes"]}
     assert ("cancelar_consulta", "cancel_window_requires_reason") in regras
     assert all(d["versao_da_politica"] for d in r["decisoes"])
+
+
+async def test_proposta_recusada_pela_politica_nao_emite_token(ctx: CtxFalso):
+    r = await chamar(
+        "remarcar_consulta",
+        ctx,
+        consulta_id="cons_1",
+        novo_inicio="2026-08-16T10:00:00-03:00",  # domingo
+    )
+    assert r["ok"] is False
+    assert r["erro"] == "outside_business_hours"
+    assert "confirmacao" not in r
+    assert server._sessao(ctx).confirmacoes == {}  # type: ignore[arg-type]
 
 
 async def test_a_mesma_escrita_passa_quando_a_regra_e_satisfeita(ctx: CtxFalso):
@@ -204,6 +220,31 @@ async def test_proposta_nao_polui_o_log_de_decisao(ctx: CtxFalso):
 
     audit = server._sessao(ctx).ctx.audit  # type: ignore[arg-type]
     assert [e.tool for e in audit].count("write_quota") == 1
+
+
+# -- nomes de paciente --------------------------------------------------------
+
+
+async def test_buscar_paciente_devolve_um_id_e_nunca_a_lista(ctx: CtxFalso):
+    # `chamar` usa `nome` para a tool; aqui o campo também se chama `nome`.
+    async def buscar(nome: str) -> dict[str, Any]:
+        return await server._executar("buscar_paciente", {"nome": nome}, ctx)  # type: ignore[arg-type]
+
+    achado = await buscar("joao")
+    assert achado == {
+        "ok": True,
+        "resultado": {"paciente_id": "pac_joao", "nome": "João Meireles"},
+        "decisoes": [],
+    }
+    ausente = await buscar("Maria Teste")
+    assert ausente["erro"] == "patient_not_found"
+    assert "Ana" not in str(ausente) and "Marta" not in str(ausente)
+
+
+async def test_agenda_sem_paciente_nao_diz_de_quem_e(ctx: CtxFalso):
+    r = await chamar("listar_agenda", ctx)
+    assert r["ok"] is True
+    assert "Ana Ribeiro" not in str(r) and "João Meireles" not in str(r)
 
 
 # -- isolamento ---------------------------------------------------------------

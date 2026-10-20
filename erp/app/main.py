@@ -124,7 +124,8 @@ app = FastAPI(
     title="Clínica Aurora ERP",
     version="1.0.0",
     description=(
-        "Scheduling system of Clínica Aurora, a **fictional** clinic.\n\n"
+        "Scheduling system of Clínica Aurora, a **fictional** clinic. "
+        "Patients, practitioners and schedule are fictional.\n\n"
         "Published alongside the agent demo so anyone can see the other side of "
         "the integration: the agent talks to this API over HTTP, exactly as it "
         "would talk to a real client's ERP.\n\n"
@@ -238,7 +239,12 @@ def listar_profissionais() -> list[Profissional]:
 
 
 @app.get("/pacientes", response_model=list[Paciente], tags=["records"])
-def listar_pacientes() -> list[Paciente]:
+def listar_pacientes(tenant: TenantDep) -> list[Paciente]:
+    """The patient registry, with phones masked. Needs a session, like the schedule.
+
+    `/profissionais` stays public: it is the clinic's storefront and identifies
+    no patient.
+    """
     return PACIENTES
 
 
@@ -405,8 +411,13 @@ def criar_sessao(request: Request) -> dict[str, object]:
     }
 
 
+# As rotas /admin servem a página e o MCP, e continuam atendendo com sessão.
+# Saem da documentação pública: não são parte da integração que a demo mostra.
 @app.post(
-    "/admin/chaos", tags=["demo"], summary="Turn chaos mode on or off for this session"
+    "/admin/chaos",
+    tags=["demo"],
+    summary="Turn chaos mode on or off for this session",
+    include_in_schema=False,
 )
 def chaos(ligado: bool, t: SessaoDep) -> dict[str, bool]:
     """With chaos on, every schedule endpoint answers 503 for this session.
@@ -419,7 +430,10 @@ def chaos(ligado: bool, t: SessaoDep) -> dict[str, bool]:
 
 
 @app.post(
-    "/admin/reset", tags=["demo"], summary="Rebuild this session's initial schedule"
+    "/admin/reset",
+    tags=["demo"],
+    summary="Rebuild this session's initial schedule",
+    include_in_schema=False,
 )
 def reset(t: SessaoDep) -> Response:
     store.resemear(t, agora())
@@ -430,6 +444,7 @@ def reset(t: SessaoDep) -> Response:
     "/admin/estado",
     tags=["demo"],
     summary="This session's full schedule, for the panel",
+    include_in_schema=False,
 )
 def estado(t: SessaoDep) -> dict[str, object]:
     consultas = sorted(t.consultas.values(), key=lambda c: c.inicio)
