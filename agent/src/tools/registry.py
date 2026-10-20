@@ -17,6 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from ..adapters.erp import ErpAdapter
+from ..i18n import normalizar, traduzir_tool
 from ..policy.engine import PolicyEngine
 from .tempo import instante_canonico
 
@@ -37,7 +38,7 @@ class ToolError(BaseModel):
 
     code: str
     user_message: str
-    """Texto em pt-BR já pronto para o usuário final. Nunca contém erro cru."""
+    """Texto no idioma da sessão, do catálogo (`src/i18n.py`). Nunca contém erro cru."""
     retry_hint: str | None = None
 
 
@@ -63,8 +64,19 @@ class AgentContext:
     at: datetime
     escritas_realizadas: int = 0
     idioma: str = "pt"
-    """Idioma da INTERFACE ("pt" ou "en"). Só escolhe as poucas frases que o
-    código emite; a conversa acompanha o idioma de quem escreve."""
+    """Idioma da SESSÃO ("pt" ou "en"), o `?lang` da página.
+
+    Governa tudo que o código escreve: o prompt do sistema, o bloco de contexto
+    de cada turno, os erros das tools, as dicas da política e as frases de
+    reserva. Antes ele só escolhia três frases, e o resto ia em português.
+    """
+    idioma_da_conversa: str | None = None
+    """Último idioma que a PESSOA usou de forma clara nesta conversa.
+
+    A resposta segue a mensagem quando ela é clara (quem escreve em espanhol
+    recebe espanhol); quando ela não diz nada ("ok", "16h"), segue este, e antes
+    de existir um, o da sessão.
+    """
     custo_micros: int = 0
     """Quanto esta conversa já custou, em micro-dólares (ver `pricing.py`).
 
@@ -89,6 +101,14 @@ class AgentContext:
     propostas_do_turno: set[str] = field(default_factory=set)
     """Escritas propostas no turno corrente, ainda não apresentadas ao usuário."""
     audit: list[AuditEntry] = field(default_factory=list)
+
+    def definir_idioma(self, idioma: object) -> None:
+        """Idioma da sessão vindo do navegador. Trocar de idioma na tela esquece
+        o idioma que a pessoa vinha usando: a troca é o sinal mais recente."""
+        novo = normalizar(idioma)
+        if novo != self.idioma:
+            self.idioma_da_conversa = None
+        self.idioma = novo
 
     def registrar(
         self,
@@ -230,17 +250,20 @@ def assinatura(nome: str, entrada: dict[str, Any]) -> str:
     return f"{nome}:{json.dumps(relevante, sort_keys=True, ensure_ascii=False)}"
 
 
-def schema_para_anthropic() -> list[dict[str, Any]]:
+def schema_para_anthropic(idioma: str = "pt") -> list[dict[str, Any]]:
     """Schemas no formato de tool_use da Anthropic, derivados do Pydantic.
 
     Uma fonte só: se o modelo Pydantic muda, o schema que o LLM vê muda junto —
     não existe caminho onde o modelo enxerga um campo que a tool não valida.
+    As descrições seguem o idioma da sessão (`i18n.traduzir_tool`): é o mesmo
+    schema, com o texto que o modelo lê na língua da conversa.
     """
-    return [
-        {
-            "name": spec.name,
-            "description": spec.description,
-            "input_schema": spec.input_model.model_json_schema(),
-        }
-        for spec in REGISTRY.values()
-    ]
+    saida: list[dict[str, Any]] = []
+    for spec in REGISTRY.values():
+        descricao, schema = traduzir_tool(
+            spec.name, spec.description, spec.input_model.model_json_schema(), idioma
+        )
+        saida.append(
+            {"name": spec.name, "description": descricao, "input_schema": schema}
+        )
+    return saida

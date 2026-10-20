@@ -24,6 +24,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ..adapters.erp import ConsultaView, ErpIndisponivel, ErpRecusou
+from ..i18n import texto
 from ..policy.engine import Janela
 from .registry import AgentContext, ToolError, tool
 from .tempo import BAHIA, ler_instante
@@ -38,12 +39,14 @@ def _dia_local(data: str) -> datetime:
     return datetime.fromisoformat(f"{data}T12:00:00").replace(tzinfo=BAHIA)
 
 
-# Sem promessa de pessoa: a demo não tem ninguém de plantão, e "vou chamar
-# alguém da recepção" contradizia a tela, que diz que o encaminhamento é simulado.
-INDISPONIVEL = ToolError(
-    code="erp_unavailable",
-    user_message="Não consegui acessar a agenda agora. Nada foi alterado.",
-)
+def _indisponivel(ctx: AgentContext) -> ToolError:
+    """O ERP não respondeu. Sem promessa de pessoa: a demo não tem ninguém de
+    plantão, e "vou chamar alguém da recepção" contradizia a tela, que diz que
+    o encaminhamento é simulado."""
+    return ToolError(
+        code="erp_unavailable",
+        user_message=texto("tool.erp_indisponivel", ctx.idioma),
+    )
 
 
 def _janelas(consultas: list[ConsultaView]) -> list[Janela]:
@@ -74,11 +77,11 @@ async def _agenda_do_dia(
             profissional_id=None, data=inicio.astimezone(BAHIA), at=ctx.at
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="Não consegui consultar a agenda para checar o horário.",
+            user_message=texto("tool.checagem_recusada", ctx.idioma),
             retry_hint=exc.detail,
         )
     return _janelas(consultas)
@@ -98,7 +101,7 @@ def _resumo(c: ConsultaView) -> dict[str, str]:
     }
 
 
-def _titular(c: ConsultaView, paciente_id: str | None) -> str:
+def _titular(c: ConsultaView, paciente_id: str | None, idioma: str) -> str:
     """O que a listagem diz de quem é a linha.
 
     O nome só aparece quando a pessoa já disse de quem quer saber (e o modelo
@@ -106,10 +109,10 @@ def _titular(c: ConsultaView, paciente_id: str | None) -> str:
     paciente": horário ocupado é ocupado, sem dizer por quem.
     """
     if not (c.paciente_id or c.paciente_nome):
-        return "vaga livre"
+        return texto("agenda.vaga_livre", idioma)
     if paciente_id and c.paciente_id == paciente_id:
         return c.paciente_nome
-    return "outro paciente"
+    return texto("agenda.outro_paciente", idioma)
 
 
 def _sem_acento(texto: str) -> str:
@@ -154,11 +157,11 @@ async def buscar_paciente(
     try:
         pacientes = await ctx.erp.listar_pacientes(at=ctx.at)
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="Não consegui consultar o cadastro agora.",
+            user_message=texto("tool.cadastro_recusado", ctx.idioma),
             retry_hint=exc.detail,
         )
 
@@ -179,12 +182,12 @@ async def buscar_paciente(
     if not achados:
         return ToolError(
             code="patient_not_found",
-            user_message="Não encontrei esse nome no cadastro.",
+            user_message=texto("tool.paciente_nao_encontrado", ctx.idioma),
         )
     if len(achados) > 1:
         return ToolError(
             code="patient_ambiguous",
-            user_message="Há mais de um paciente com esse nome. Peça o sobrenome.",
+            user_message=texto("tool.paciente_ambiguo", ctx.idioma),
         )
     return {"paciente_id": achados[0].id, "nome": achados[0].nome}
 
@@ -233,17 +236,18 @@ async def listar_agenda(
             at=ctx.at,
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="Não consegui consultar essa agenda.",
+            user_message=texto("tool.listar_recusado", ctx.idioma),
             retry_hint=exc.detail,
         )
 
     saida = {
         "consultas": [
-            {**_resumo(c), "paciente": _titular(c, data.paciente_id)} for c in consultas
+            {**_resumo(c), "paciente": _titular(c, data.paciente_id, ctx.idioma)}
+            for c in consultas
         ]
     }
     ctx.registrar(
@@ -285,7 +289,7 @@ async def remarcar_consulta(
     if novo_inicio is None:
         return ToolError(
             code="invalid_datetime",
-            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+            user_message=texto("tool.horario_invalido", ctx.idioma),
         )
 
     try:
@@ -294,7 +298,7 @@ async def remarcar_consulta(
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
         if consulta is None:
             return ToolError(
-                code="not_found", user_message="Não encontrei essa consulta na agenda."
+                code="not_found", user_message=texto("tool.nao_encontrada", ctx.idioma)
             )
         agenda = await ctx.erp.listar(
             profissional_id=consulta.profissional_id,
@@ -302,14 +306,14 @@ async def remarcar_consulta(
             at=ctx.at,
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         # A LEITURA também pode ser recusada — 429 do rate limit, 400 de filtro.
         # Sem este ramo a exceção escapava da tool inteira: o agente não escalava,
         # o audit não registrava nada, e o visitante via um erro genérico.
         return ToolError(
             code="erp_rejected",
-            user_message="Não consegui consultar a agenda para checar o horário.",
+            user_message=texto("tool.checagem_recusada", ctx.idioma),
             retry_hint=exc.detail,
         )
 
@@ -332,8 +336,8 @@ async def remarcar_consulta(
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
-            user_message="Esse horário não está disponível.",
-            retry_hint=decisao.explanation_hint,
+            user_message=texto("tool.horario_indisponivel", ctx.idioma),
+            retry_hint=texto(decisao.explanation_hint, ctx.idioma),
         )
     if not executar:
         return None
@@ -346,11 +350,11 @@ async def remarcar_consulta(
         atualizada = await ctx.erp.remarcar(consulta.id, novo_inicio, at=ctx.at)
     except ErpIndisponivel:
         # O ponto inteiro da demo: falhou a escrita, o agente não inventa.
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="A agenda recusou essa alteração.",
+            user_message=texto("tool.remarcar_recusado", ctx.idioma),
             retry_hint=exc.detail,
         )
 
@@ -399,10 +403,10 @@ async def cancelar_consulta(
     try:
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     if consulta is None:
         return ToolError(
-            code="not_found", user_message="Não encontrei essa consulta na agenda."
+            code="not_found", user_message=texto("tool.nao_encontrada", ctx.idioma)
         )
 
     decisao = ctx.policy.pode_cancelar(
@@ -419,8 +423,8 @@ async def cancelar_consulta(
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
-            user_message="Para cancelar essa consulta eu preciso registrar um motivo.",
-            retry_hint=decisao.explanation_hint,
+            user_message=texto("tool.cancelar_exige_motivo", ctx.idioma),
+            retry_hint=texto(decisao.explanation_hint, ctx.idioma),
         )
     if not executar:
         return None
@@ -430,11 +434,11 @@ async def cancelar_consulta(
             consulta.id, data.motivo or "cancelado pela recepção", at=ctx.at
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="A agenda recusou o cancelamento.",
+            user_message=texto("tool.cancelar_recusado", ctx.idioma),
             retry_hint=exc.detail,
         )
 
@@ -482,7 +486,7 @@ async def abrir_vaga(
     if inicio is None:
         return ToolError(
             code="invalid_datetime",
-            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+            user_message=texto("tool.horario_invalido", ctx.idioma),
         )
 
     agenda = await _agenda_do_dia(ctx, inicio)
@@ -508,8 +512,8 @@ async def abrir_vaga(
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
-            user_message="Não posso abrir esse horário.",
-            retry_hint=decisao.explanation_hint,
+            user_message=texto("tool.vaga_nao_permitida", ctx.idioma),
+            retry_hint=texto(decisao.explanation_hint, ctx.idioma),
         )
     if not executar:
         return None
@@ -519,11 +523,11 @@ async def abrir_vaga(
             data.profissional_id, inicio, data.duracao_min, at=ctx.at
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="A agenda recusou esse horário.",
+            user_message=texto("tool.vaga_recusada", ctx.idioma),
             retry_hint=exc.detail,
         )
 
@@ -597,7 +601,7 @@ async def marcar_consulta(
     if inicio is None:
         return ToolError(
             code="invalid_datetime",
-            user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
+            user_message=texto("tool.horario_invalido", ctx.idioma),
         )
 
     agenda = await _agenda_do_dia(ctx, inicio)
@@ -623,8 +627,8 @@ async def marcar_consulta(
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
-            user_message="Não posso marcar nesse horário.",
-            retry_hint=decisao.explanation_hint,
+            user_message=texto("tool.marcar_nao_permitido", ctx.idioma),
+            retry_hint=texto(decisao.explanation_hint, ctx.idioma),
         )
     if not executar:
         return None
@@ -638,11 +642,11 @@ async def marcar_consulta(
             paciente_id=data.paciente_id,
         )
     except ErpIndisponivel:
-        return INDISPONIVEL
+        return _indisponivel(ctx)
     except ErpRecusou as exc:
         return ToolError(
             code="erp_rejected",
-            user_message="A agenda recusou essa consulta.",
+            user_message=texto("tool.marcar_recusado", ctx.idioma),
             retry_hint=exc.detail,
         )
 

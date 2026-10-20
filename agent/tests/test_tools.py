@@ -951,3 +951,47 @@ async def test_escrita_nao_devolve_nome_de_paciente(ctx: AgentContext, erp: ErpF
         assert not isinstance(saida, ToolError)
         assert "paciente" not in saida
         assert not any(n in json.dumps(saida, ensure_ascii=False) for n in NOMES)
+
+
+# -- idioma da sessão nas saídas das tools ------------------------------------
+
+
+async def test_erros_e_rotulos_das_tools_seguem_o_idioma_da_sessao(
+    ctx: AgentContext, erp: ErpFake
+):
+    ctx.idioma = "en"
+    erp.consultas["cons_5"] = consulta(
+        "cons_5", datetime(2026, 8, 12, 11, 0, tzinfo=BAHIA), paciente=("", "")
+    )
+    lista = await listar_agenda(ctx, ListarAgendaInput())
+    rotulos = {c["paciente"] for c in lista["consultas"]}
+    assert rotulos == {"another patient", "free slot"}
+
+    ausente = await buscar_paciente(ctx, BuscarPacienteInput(nome="Maria Teste"))
+    assert ausente.user_message == "I couldn't find that name in the registry."
+
+    recusa = await abrir_vaga(
+        ctx,
+        AbrirVagaInput(
+            profissional_id="prof_bruno",
+            inicio="2026-08-16T10:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert recusa.user_message == "I can't open that time."
+    assert (
+        recusa.retry_hint
+        == "say that the clinic is closed on that day and offer another"
+    )
+
+    erp.down = True
+    fora = await remarcar_consulta(
+        ctx,
+        RemarcarConsultaInput(
+            consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00-03:00"
+        ),
+    )
+    assert (
+        fora.user_message
+        == "I couldn't reach the schedule right now. Nothing was changed."
+    )

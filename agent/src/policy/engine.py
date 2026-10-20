@@ -61,13 +61,13 @@ class PolicyEngine:
     # -- P-4, compartilhada por toda escrita que ocupa a agenda ------------------
 
     def _fora_do_expediente(self, inicio: datetime, fim: datetime) -> str | None:
-        """Hint de recusa se o atendimento não cabe no expediente; None se cabe."""
+        """Chave da dica de recusa se o atendimento não cabe no expediente; None se cabe."""
         local = inicio.astimezone(self._tz)
         fim_local = fim.astimezone(self._tz)
         dia = self._rules["expediente"]["dias"].get(str(local.weekday()))
 
         if dia is None:
-            return "diga que a clínica não atende nesse dia e ofereça outro"
+            return "dica.dia_fechado"
 
         abre = time.fromisoformat(dia["abre"])
         fecha = time.fromisoformat(dia["fecha"])
@@ -80,7 +80,7 @@ class PolicyEngine:
         )
         if cabe:
             return None
-        return "diga que o horário está fora do expediente e ofereça um dentro"
+        return "dica.fora_do_expediente"
 
     # -- P-1 ---------------------------------------------------------------------
 
@@ -101,16 +101,14 @@ class PolicyEngine:
             return Decision(
                 allowed=False,
                 reason_code="cancel_window_requires_reason",
-                explanation_hint=(
-                    "peça o motivo do cancelamento antes de seguir, sem explicar por que é preciso"
-                ),
+                explanation_hint="dica.pedir_motivo",
                 audit_payload=payload,
             )
         return Decision(
             allowed=True,
             reason_code=ALLOWED,
             audit_payload=payload,
-            explanation_hint="confirme o cancelamento",
+            explanation_hint="dica.confirmar_cancelamento",
         )
 
     # -- P-2 e P-3 ---------------------------------------------------------------
@@ -136,7 +134,7 @@ class PolicyEngine:
             return Decision(
                 allowed=False,
                 reason_code="slot_in_the_past",
-                explanation_hint="diga que esse horário já passou e ofereça outro",
+                explanation_hint="dica.horario_passou",
                 audit_payload=payload,
             )
 
@@ -159,7 +157,7 @@ class PolicyEngine:
                 return Decision(
                     allowed=False,
                     reason_code="slot_conflict",
-                    explanation_hint="diga que o horário está ocupado e ofereça outro",
+                    explanation_hint="dica.horario_ocupado",
                     audit_payload={**payload, "conflita_com": janela.consulta_id},
                 )
 
@@ -167,7 +165,7 @@ class PolicyEngine:
             allowed=True,
             reason_code=ALLOWED,
             value=novo_inicio,
-            explanation_hint="confirme a remarcação com o horário novo",
+            explanation_hint="dica.confirmar_remarcacao",
             audit_payload=payload,
         )
 
@@ -203,7 +201,7 @@ class PolicyEngine:
             return Decision(
                 allowed=False,
                 reason_code="slot_in_the_past",
-                explanation_hint="diga que esse horário já passou e ofereça outro",
+                explanation_hint="dica.horario_passou",
                 audit_payload=payload,
             )
 
@@ -223,7 +221,7 @@ class PolicyEngine:
                 return Decision(
                     allowed=False,
                     reason_code="slot_conflict",
-                    explanation_hint="diga que o horário está ocupado e ofereça outro",
+                    explanation_hint="dica.horario_ocupado",
                     audit_payload={**payload, "conflita_com": janela.consulta_id},
                 )
 
@@ -239,10 +237,7 @@ class PolicyEngine:
                 return Decision(
                     allowed=False,
                     reason_code="patient_daily_limit",
-                    explanation_hint=(
-                        "diga que esse paciente já tem consulta nesse dia e ofereça "
-                        "outro dia, sem prometer as outras consultas pedidas"
-                    ),
+                    explanation_hint="dica.paciente_ja_tem_consulta",
                     audit_payload={**payload, "consultas_no_dia": len(no_dia)},
                 )
 
@@ -250,7 +245,7 @@ class PolicyEngine:
             allowed=True,
             reason_code=ALLOWED,
             value=inicio,
-            explanation_hint="confirme a abertura do horário",
+            explanation_hint="dica.confirmar_abertura",
             audit_payload=payload,
         )
 
@@ -263,12 +258,12 @@ class PolicyEngine:
             return Decision(
                 allowed=False,
                 reason_code="write_quota_exceeded",
-                explanation_hint="diga que precisa passar para a recepção para continuar",
+                explanation_hint="dica.passar_para_recepcao",
                 audit_payload=payload,
             )
         return Decision(
             allowed=True,
             reason_code=ALLOWED,
-            explanation_hint="siga normalmente",
+            explanation_hint="dica.seguir",
             audit_payload=payload,
         )

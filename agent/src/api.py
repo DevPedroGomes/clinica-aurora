@@ -158,6 +158,7 @@ def _sincronizar_vista(sessao: Sessao, vista: str | None) -> bool:
         sessao.ctx.confirmacoes = set()
         sessao.ctx.propostas_do_turno.clear()
         sessao.ctx.custo_micros = 0
+        sessao.ctx.idioma_da_conversa = None
     return True
 
 
@@ -265,7 +266,9 @@ async def chat(
         ) from exc
 
     ctx = _contexto(sessao)
-    ctx.idioma = "en" if corpo.get("idioma") == "en" else "pt"
+    # O idioma da sessão governa tudo que o código escreve (prompt, contexto,
+    # erros, dicas). Valor fora da lista cai no português, como a página.
+    ctx.definir_idioma(corpo.get("idioma"))
     custo_antes = ctx.custo_micros
 
     async def stream():
