@@ -1,7 +1,8 @@
 # Clínica Aurora — demo pública do arquétipo B
 
-Um agente que **escreve** na agenda de uma clínica e **recusa** quando a regra do
-negócio não deixa. A clínica é fictícia e o ERP dela é publicado junto, para que
+Agenda com escrita em sistema: um agente que marca, remarca e cancela numa agenda
+e só grava depois da confirmação. O cenário é uma clínica fictícia; os pacientes e
+o sistema de agenda também são fictícios. O ERP é publicado junto, para que
 qualquer pessoa possa inspecionar o outro lado da integração.
 
 Escopo aceito: `pgtech-agents/clientes/clinica-aurora/docs/escopo.md`.
@@ -10,12 +11,18 @@ Escopo aceito: `pgtech-agents/clientes/clinica-aurora/docs/escopo.md`.
 
 | # | Momento | O que aparece na tela |
 |---|---|---|
-| 1 | **Escreve** | "remarca a da Ana pras 16h" → a linha muda no painel do ERP, ao vivo |
-| 2 | **Recusa por política** | cancelar uma consulta que começa em 2h → `cancel_window_requires_reason` visível |
-| 3 | **Recusa fora de escopo** | "me escreve um poema" → o agente diz que só cuida da agenda |
-| 4 | **Não fabrica quando quebra** | o visitante derruba o ERP → o agente escala em vez de inventar confirmação |
+| 1 | **Escreve com uma confirmação** | "remarca a da Ana pras 16h" → uma proposta, o "sim", e a linha muda no painel do ERP, ao vivo |
+| 2 | **A regra decide antes do "sim"** | "passa a da Ana pra domingo" → `outside_business_hours` na primeira resposta, sem pedir confirmação |
+| 3 | **Recusa por política** | cancelar uma consulta que começa em 2h → `cancel_window_requires_reason` antes de qualquer confirmação |
+| 4 | **Recusa fora de escopo** | "me escreve um poema" → o agente diz que só cuida da agenda |
+| 5 | **Não fabrica quando quebra** | o visitante derruba o ERP → o agente diz que não gravou, em vez de inventar confirmação |
+| 6 | **Não diz nome de paciente que você não disse** | "marca para Maria Teste" → "não encontrei no cadastro", sem listar ninguém |
+| 7 | **Recarregar descarta a proposta pendente** | propor, apertar F5 e digitar "sim" → nada é gravado |
+| 8 | **Uma alteração por vez** | "marque 10 consultas para a Marta" → uma proposta; a segunda do dia é `patient_daily_limit` |
 
-O momento 4 é o diferencial. Todo mundo demonstra o caminho feliz.
+O momento 5 é o diferencial. Todo mundo demonstra o caminho feliz.
+Os cenários da auditoria de 20/10 estão em `agent/tests/test_cenarios.py` e nos
+testes que ele cita.
 
 ## Arquitetura
 
@@ -50,7 +57,8 @@ make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
 - Nenhuma tool inventa resultado. Se o ERP não gravou, a tool devolve `ToolError`.
 - Toda escrita passa por confirmação (`G-17`), e isso é enforcement no registry, não instrução de prompt.
   O gate aparece no log de decisão como `gate · held`: a chamada barrada é visível, e não se confunde
-  com a que executou depois.
+  com a que executou depois. Antes do gate roda a **prévia** (`executar=False`): leituras e política,
+  sem gravar. Se a regra recusa, a recusa vem já, sem pedir "sim"; na execução a política roda de novo.
 - `rules.yaml` é versionado e a versão vai em cada linha do audit log — que sai em JSON por linha no
   logger `aurora.audit`, no stdout do container. A lista em memória alimenta a tela; o log é o que
   sobrevive à conversa e permite provar, depois, sob qual versão da regra a decisão foi tomada.
@@ -77,6 +85,17 @@ Sessão anônima com tenant isolado, agenda semeada na hora e despejada quando a
 sessão expira. Nada aqui persiste, e nenhum dado de um visitante é visível para
 outro. Teto de gasto diário em dólar, reservado antes de cada chamada paga e
 reconciliado contra o `usage` real depois, mais kill switch por env var.
+
+Cada carregamento da página é uma **vista** (`X-Aurora-Vista`). Vista nova na
+mesma sessão começa conversa nova: o F5 e a outra aba descartam a proposta
+pendente, e a confirmação vale só para a mensagem seguinte. A agenda e o teto
+de 3 alterações por conversa ficam; o botão Reiniciar zera tudo.
+
+Quem conversa não está identificado. O agente só diz o nome de um paciente que
+a pessoa já disse (`buscar_paciente` devolve um id, nunca uma lista), e o
+`/pacientes` do ERP exige sessão e mostra o telefone fictício mascarado. O
+painel da direita continua mostrando os nomes da agenda da própria sessão: ele
+é a tela interna do sistema, e a regra vale para o que o agente diz no chat.
 
 O ERP público não aceita sessão escolhida por quem chama. Sem `X-Tenant-Id`, ou
 com um id que nenhum servidor emitiu, a resposta é 401, e não existe tenant
