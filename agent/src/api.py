@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -66,6 +67,8 @@ class Sessao:
     ctx: AgentContext | None = None
     criada_em: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    vista: str | None = None
+    """O carregamento de página que falou por último com esta sessão."""
 
 
 _sessoes: dict[str, Sessao] = {}
@@ -121,6 +124,44 @@ def _sessao(sid: str | None, ip: str) -> tuple[str, Sessao]:
     novo = uuid.uuid4().hex
     _sessoes[novo] = Sessao(tenant_id=f"demo-{novo[:12]}")
     return novo, _sessoes[novo]
+
+
+_VISTA_VALIDA = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+def _sincronizar_vista(sessao: Sessao, vista: str | None) -> bool:
+    """Vista nova na mesma sessão começa conversa nova. Devolve se zerou.
+
+    O "sim" cego: a conversa e as confirmações vivem aqui, presas ao cookie,
+    enquanto o chat da página volta vazio depois do F5. Quem recarregava e
+    digitava "sim" executava uma proposta que não estava mais na tela, e a
+    outra aba do mesmo navegador confirmava a proposta que só esta mostrou.
+
+    Zera a conversa, as confirmações pendentes e o custo mostrado. Mantém a
+    agenda do ERP e o contador de escritas: o teto de 3 não reinicia com F5.
+    O botão Reiniciar continua reiniciando tudo.
+
+    Durante um turno em andamento não troca nada: zerar a conversa no meio do
+    turno deixaria o turno escrevendo num histórico que ninguém mais lê. A
+    próxima requisição desta vista, depois do turno, faz a troca.
+    """
+    if vista is None or not _VISTA_VALIDA.fullmatch(vista):
+        return False
+    if sessao.vista is None:
+        sessao.vista = vista
+        return False
+    if vista == sessao.vista or sessao.lock.locked():
+        return False
+    sessao.vista = vista
+    sessao.conversa = Conversation()
+    if sessao.ctx is not None:
+        sessao.ctx.confirmacoes = set()
+        sessao.ctx.propostas_do_turno.clear()
+        sessao.ctx.custo_micros = 0
+    return True
+
+
+ERP_INALCANCAVEL = "ERP unreachable."
 
 
 def _contexto(s: Sessao) -> AgentContext:
@@ -185,6 +226,7 @@ async def chat(
     response: Response,
     sid: Annotated[str | None, Cookie(alias="aurora_sid")] = None,
     x_real_ip: Annotated[str | None, Header()] = None,
+    x_aurora_vista: Annotated[str | None, Header()] = None,
 ):
     corpo = await request.json()
     mensagem = str(corpo.get("mensagem", "")).strip()
@@ -202,6 +244,8 @@ async def chat(
     # simultâneas passarem pela checagem e consumirem o teto duas vezes.
     if sessao.lock.locked():
         raise HTTPException(409, "Still answering the previous one.")
+    # Antes de pegar o lock: com ele preso, a sincronização não troca nada.
+    _sincronizar_vista(sessao, x_aurora_vista)
     await sessao.lock.acquire()
 
     # Reserva antes da chamada paga, porque o custo real só existe depois dela.
@@ -270,13 +314,20 @@ async def estado(
     response: Response,
     sid: Annotated[str | None, Cookie(alias="aurora_sid")] = None,
     x_real_ip: Annotated[str | None, Header()] = None,
+    x_aurora_vista: Annotated[str | None, Header()] = None,
 ):
     """Espelho do ERP para o painel da direita. É o outro lado da integração."""
     sid, sessao = _sessao(sid, _ip(x_real_ip))
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        r = await client.get(
-            f"{ERP_URL}/admin/estado", headers={"X-Tenant-Id": sessao.tenant_id}
-        )
+    _sincronizar_vista(sessao, x_aurora_vista)
+    # ERP inalcançável (container parado, rede caída) respondia 500 cru, e a
+    # tela mostrava erro de console em vez de "sem resposta".
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{ERP_URL}/admin/estado", headers={"X-Tenant-Id": sessao.tenant_id}
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, ERP_INALCANCAVEL) from exc
     dados = r.json()
     dados["conversa"] = {
         "estado": sessao.conversa.state.value,
@@ -302,15 +353,20 @@ async def chaos(
     ligado: bool,
     sid: Annotated[str | None, Cookie(alias="aurora_sid")] = None,
     x_real_ip: Annotated[str | None, Header()] = None,
+    x_aurora_vista: Annotated[str | None, Header()] = None,
 ):
     _rate_limit(_ip(x_real_ip))
     sid, sessao = _sessao(sid, _ip(x_real_ip))
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        r = await client.post(
-            f"{ERP_URL}/admin/chaos",
-            params={"ligado": ligado},
-            headers={"X-Tenant-Id": sessao.tenant_id},
-        )
+    _sincronizar_vista(sessao, x_aurora_vista)
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{ERP_URL}/admin/chaos",
+                params={"ligado": ligado},
+                headers={"X-Tenant-Id": sessao.tenant_id},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, ERP_INALCANCAVEL) from exc
     resposta = Response(r.text, media_type="application/json")
     resposta.set_cookie(
         "aurora_sid",
@@ -327,13 +383,18 @@ async def chaos(
 async def reset(
     sid: Annotated[str | None, Cookie(alias="aurora_sid")] = None,
     x_real_ip: Annotated[str | None, Header()] = None,
+    x_aurora_vista: Annotated[str | None, Header()] = None,
 ):
     _rate_limit(_ip(x_real_ip))
     sid, sessao = _sessao(sid, _ip(x_real_ip))
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        await client.post(
-            f"{ERP_URL}/admin/reset", headers={"X-Tenant-Id": sessao.tenant_id}
-        )
+    _sincronizar_vista(sessao, x_aurora_vista)
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{ERP_URL}/admin/reset", headers={"X-Tenant-Id": sessao.tenant_id}
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, ERP_INALCANCAVEL) from exc
     sessao.conversa = Conversation()
     sessao.ctx = None
     resposta = Response('{"ok":true}', media_type="application/json")
