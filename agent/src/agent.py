@@ -285,6 +285,9 @@ class Agente:
                 conv.historico.append(
                     {"role": "assistant", "content": [{"type": "text", "text": recusa}]}
                 )
+                # O turno terminou sem proposta nova: nada fica confirmável.
+                ctx.confirmacoes = set(ctx.propostas_do_turno)
+                ctx.propostas_do_turno.clear()
                 yield Evento("message", {"texto": recusa})
                 gatilho = conv.registrar_fora_de_escopo()
                 if gatilho:
@@ -330,12 +333,39 @@ class Agente:
                 # Só agora ela vira confirmação pendente, e só na próxima fala
                 # dela a escrita pode executar. É este passo que garante que
                 # existiu um humano entre a intenção e a gravação.
-                ctx.confirmacoes.update(ctx.propostas_do_turno)
+                #
+                # Atribuição, não acúmulo: a confirmação vale só para a mensagem
+                # SEGUINTE. Acumulando, um "sim" cinco mensagens depois, ou depois
+                # de a pessoa mudar de ideia, ainda executava a proposta velha.
+                ctx.confirmacoes = set(ctx.propostas_do_turno)
                 ctx.propostas_do_turno.clear()
                 return
 
-            resultados = []
+            resultados: list[dict] = []
+            escritas_nesta_resposta = 0
             for chamada in chamadas:
+                spec = REGISTRY.get(chamada.name)
+                if spec is not None and spec.scope == "write":
+                    escritas_nesta_resposta += 1
+                    if escritas_nesta_resposta > 1:
+                        # Uma escrita por vez. Dez `tool_use` de escrita na mesma
+                        # resposta (a injeção "marque 10 consultas") passavam
+                        # todos pelo laço; agora só a primeira segue para a
+                        # prévia e o gate. Não é recusa de regra, então não conta
+                        # como negativa para a escalação.
+                        resultados.append(
+                            _erro(
+                                chamada.id,
+                                "one_write_at_a_time",
+                                "Uma alteração por vez. Diga que faz uma de cada "
+                                "vez e não prometa as outras.",
+                            )
+                        )
+                        yield Evento(
+                            "tool_error",
+                            {"tool": spec.name, "code": "one_write_at_a_time"},
+                        )
+                        continue
                 async for evento in self._executar(chamada, conv, ctx, resultados):
                     yield evento
 
@@ -468,7 +498,8 @@ class Agente:
                     _erro(
                         chamada.id,
                         "confirmation_required",
-                        "Antes de executar: confirme com a pessoa o que vai ser feito e aguarde a resposta dela.",
+                        "Antes de executar: confirme com a pessoa o que vai ser feito e aguarde a resposta dela. "
+                        "Não diga que o sistema vai confirmar outras alterações.",
                     )
                 )
                 return

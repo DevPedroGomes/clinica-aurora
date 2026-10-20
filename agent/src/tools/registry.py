@@ -75,11 +75,14 @@ class AgentContext:
     chamadas: int = 0
     """Iterações do loop que chegaram a virar chamada paga."""
     confirmacoes: set[str] = field(default_factory=set)
-    """Assinaturas de escrita já confirmadas pelo usuário nesta conversa.
+    """Assinaturas de escrita que a PRÓXIMA fala do usuário pode confirmar.
 
     Uma assinatura entra aqui quando o agente PROPÔS a escrita e o turno
     terminou — ou seja, a proposta chegou ao usuário. A execução só acontece
     quando a mesma assinatura volta, o que exige uma fala do usuário no meio.
+    Vale só para a mensagem seguinte: o fim de cada turno substitui o conjunto
+    pelas propostas daquele turno, e uma proposta velha não sobrevive a uma
+    conversa no meio nem a uma mudança de ideia.
     É o gate do G-17, e ele mora no runtime justamente para o modelo não poder
     pular: nenhuma instrução de prompt adiciona nada a este conjunto.
     """

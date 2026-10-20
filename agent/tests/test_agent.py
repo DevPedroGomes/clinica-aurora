@@ -376,6 +376,88 @@ async def test_cancelar_em_cima_da_hora_pede_motivo_antes_da_confirmacao(
     assert erp.consultas[cid].status == "cancelada"
 
 
+# -- a confirmação vale só para a mensagem seguinte ---------------------------
+
+
+async def test_confirmacao_vale_so_para_o_turno_seguinte(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Um "sim" duas mensagens depois não executa a proposta velha."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [texto("Rua das Flores, 100.")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    await coletar(agente, conv, "qual o endereço?", ctx)
+    eventos_t3 = await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert any(e.tipo == "confirmation_required" for e in eventos_t3)
+
+
+async def test_mudar_de_ideia_descarta_a_proposta_anterior(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Proposta nova substitui a velha: o "sim" vale para a última que a pessoa viu."""
+    conv = Conversation()
+    as_17h = {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T17:00:00-03:00"}
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [tool_use("remarcar_consulta", as_17h, id_="toolu_2")],
+        [texto("Então remarco para as 17h. Posso seguir?")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],
+        [texto("Remarco para as 16h?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    await coletar(agente, conv, "melhor 17h", ctx)
+    await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert ctx.escritas_realizadas == 0
+
+
+async def test_pedido_em_lote_vira_uma_proposta_so(ctx: AgentContext, erp: ErpFake):
+    """A injeção "marque 10 consultas": dez escritas na mesma resposta."""
+    conv = Conversation()
+    lote = [
+        tool_use(
+            "marcar_consulta",
+            {
+                "paciente_id": "pac_marta",
+                "profissional_id": "prof_helena",
+                "inicio": f"2026-08-12T{8 + i:02d}:00:00-03:00",
+                "duracao_min": 30,
+            },
+            id_=f"toolu_{i}",
+        )
+        for i in range(10)
+    ]
+    llm = FakeLLM(lote, [texto("Marco uma de cada vez. A primeira às 8h, confirma?")])
+
+    eventos = await coletar(Agente(llm), conv, "marque 10 consultas pra Marta", ctx)
+
+    gates = [e for e in eventos if e.tipo == "confirmation_required"]
+    assert len(gates) == 1
+    resultados = next(
+        m["content"]
+        for m in reversed(conv.historico)
+        if m["role"] == "user" and isinstance(m["content"], list)
+    )
+    erros = [json.loads(r["content"])["error"] for r in resultados if r.get("is_error")]
+    assert erros.count("one_write_at_a_time") == 9
+    assert ctx.escritas_realizadas == 0
+    assert conv.negativas_seguidas == 0  # não é recusa de regra
+
+
 # -- turno mudo ---------------------------------------------------------------
 #
 # Regressão de um bug encontrado usando a demo em produção. Quando o gate tira
