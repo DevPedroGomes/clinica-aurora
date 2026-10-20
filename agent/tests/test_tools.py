@@ -343,7 +343,7 @@ async def test_toda_decisao_de_politica_entra_no_audit_com_a_versao_da_regra(
     decisoes = [e for e in ctx.audit if e.kind == "policy_decision"]
     assert len(decisoes) == 1
     assert decisoes[0].reason_code == "slot_conflict"
-    assert decisoes[0].rules_version == "2026.08.2"
+    assert decisoes[0].rules_version == "2026.10.1"
 
 
 async def test_escrita_bem_sucedida_gera_linha_de_write_no_audit(ctx: AgentContext):
@@ -714,3 +714,123 @@ async def test_previa_de_cada_escrita_nao_toca_o_erp(ctx: AgentContext, erp: Erp
     escritas = {"remarcar", "cancelar", "abrir_vaga"}
     assert not [c for c in erp.chamadas if c[0] in escritas]
     assert ctx.escritas_realizadas == 0
+
+
+# -- P-3 e P-6 ao marcar -------------------------------------------------------
+
+
+async def test_marcar_em_horario_ocupado_recusa_por_politica(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Era 409 do ERP, contado como falha do ERP. Agora é recusa de regra."""
+    out = await marcar_consulta(
+        ctx,
+        MarcarConsultaInput(
+            paciente_id="pac_marta",
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T09:00:00-03:00",  # cons_1 ocupa o Dr. Bruno
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "slot_conflict"
+    assert not [c for c in erp.chamadas if c[0] == "abrir_vaga"]
+
+
+async def test_segunda_consulta_da_paciente_no_dia_recusa(
+    ctx: AgentContext, erp: ErpFake
+):
+    entrada = {
+        "paciente_id": "pac_marta",
+        "profissional_id": "prof_helena",
+        "duracao_min": 30,
+    }
+    primeira = await marcar_consulta(
+        ctx, MarcarConsultaInput(**entrada, inicio="2026-08-12T10:00:00-03:00")
+    )
+    assert not isinstance(primeira, ToolError)
+    segunda = await marcar_consulta(
+        ctx, MarcarConsultaInput(**entrada, inicio="2026-08-12T15:00:00-03:00")
+    )
+    assert isinstance(segunda, ToolError)
+    assert segunda.code == "patient_daily_limit"
+    assert ctx.escritas_realizadas == 1
+
+
+async def test_abrir_vaga_em_horario_ocupado_recusa_por_politica(
+    ctx: AgentContext, erp: ErpFake
+):
+    out = await abrir_vaga(
+        ctx,
+        AbrirVagaInput(
+            profissional_id="prof_bruno",
+            inicio="2026-08-11T11:00:00-03:00",  # cons_2 ocupa o Dr. Bruno
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "slot_conflict"
+
+
+async def test_marcar_com_leitura_recusada_nao_escapa(ctx_recusa: AgentContext):
+    """A leitura da agenda do dia também pode ser recusada (429, 400)."""
+    out = await marcar_consulta(
+        ctx_recusa,
+        MarcarConsultaInput(
+            paciente_id="pac_ana",
+            profissional_id="prof_bruno",
+            inicio="2026-08-13T10:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "erp_rejected"
+
+
+class ErpRecusaEscrita(ErpFake):
+    """Lê normalmente e recusa a escrita: o 409 que passa pela política."""
+
+    async def abrir_vaga(
+        self, profissional_id, inicio, duracao_min, at, paciente_id=""
+    ):
+        raise ErpRecusou(409, "Horário já ocupado.")
+
+
+@pytest.fixture
+def ctx_recusa_escrita(erp: ErpFake) -> AgentContext:
+    return AgentContext(
+        conversation_id="conv_recusa_escrita",
+        tenant_id="t1",
+        policy=PolicyEngine(),
+        erp=ErpRecusaEscrita(list(erp.consultas.values())),  # type: ignore[arg-type]
+        at=AGORA,
+    )
+
+
+async def test_erp_recusa_a_vaga_depois_da_politica(ctx_recusa_escrita: AgentContext):
+    out = await abrir_vaga(
+        ctx_recusa_escrita,
+        AbrirVagaInput(
+            profissional_id="prof_bruno",
+            inicio="2026-08-13T10:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "erp_rejected"
+
+
+async def test_erp_recusa_a_consulta_depois_da_politica(
+    ctx_recusa_escrita: AgentContext,
+):
+    out = await marcar_consulta(
+        ctx_recusa_escrita,
+        MarcarConsultaInput(
+            paciente_id="pac_ana",
+            profissional_id="prof_bruno",
+            inicio="2026-08-13T10:00:00-03:00",
+            duracao_min=30,
+        ),
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "erp_rejected"

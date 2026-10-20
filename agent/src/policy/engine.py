@@ -9,11 +9,16 @@ P-2 não remarca para o passado                   SLOT_IN_THE_PAST
 P-3 não remarca para horário ocupado             SLOT_CONFLICT
 P-4 não agenda ninguém fora do expediente        OUTSIDE_BUSINESS_HOURS
 P-5 teto de escritas por conversa                WRITE_QUOTA_EXCEEDED
+P-6 uma consulta por paciente por dia            PATIENT_DAILY_LIMIT
 
 P-4 vale para as DUAS escritas que põem alguém na agenda — abrir vaga e
 remarcar. Só ligá-la ao abrir_vaga foi um buraco real: a demo aceitava mover
 uma consulta para domingo às 3h da manhã e o log de decisão dizia "permitido",
 que é exatamente o oposto do que esta demo existe para provar.
+
+P-3 vale também ao marcar e ao abrir vaga. Antes o horário ocupado só aparecia
+como 409 do ERP, contado como falha do ERP: na segunda vez a conversa encerrava
+dizendo "o ERP falhou duas vezes", quando o que houve foi uma regra.
 """
 
 from __future__ import annotations
@@ -39,6 +44,8 @@ class Janela:
     profissional_id: str
     inicio: datetime
     fim: datetime
+    paciente_id: str = ""
+    """Vazio numa vaga sem titular, que por isso não conta para a P-6."""
 
 
 class PolicyEngine:
@@ -164,13 +171,28 @@ class PolicyEngine:
             audit_payload=payload,
         )
 
-    # -- P-4 ---------------------------------------------------------------------
+    # -- P-2, P-4, P-3 e P-6, para quem ocupa a agenda -----------------------------
 
-    def pode_abrir_vaga(
-        self, *, inicio: datetime, duracao_min: int, at: datetime
+    def pode_marcar(
+        self,
+        *,
+        paciente_id: str | None,
+        profissional_id: str,
+        inicio: datetime,
+        duracao_min: int,
+        agenda: list[Janela],
+        at: datetime,
     ) -> Decision:
+        """Marcar consulta (com `paciente_id`) ou abrir vaga (com None).
+
+        Ordem: passado, expediente, horário ocupado, limite do paciente no dia.
+        A mais útil para a pessoa vem primeiro: "já passou" antes de "fora do
+        horário", e "ocupado" antes de "ela já tem consulta nesse dia".
+        """
         fim = inicio + timedelta(minutes=duracao_min)
-        payload = {
+        payload: dict[str, Any] = {
+            "paciente_id": paciente_id,
+            "profissional_id": profissional_id,
             "inicio": inicio.isoformat(),
             "inicio_local": inicio.astimezone(self._tz).isoformat(),
             "duracao_min": duracao_min,
@@ -193,6 +215,36 @@ class PolicyEngine:
                 explanation_hint=hint,
                 audit_payload=payload,
             )
+
+        for janela in agenda:
+            if janela.profissional_id != profissional_id:
+                continue
+            if inicio < janela.fim and janela.inicio < fim:
+                return Decision(
+                    allowed=False,
+                    reason_code="slot_conflict",
+                    explanation_hint="diga que o horário está ocupado e ofereça outro",
+                    audit_payload={**payload, "conflita_com": janela.consulta_id},
+                )
+
+        if paciente_id:
+            dia = inicio.astimezone(self._tz).date()
+            no_dia = [
+                j.consulta_id
+                for j in agenda
+                if j.paciente_id == paciente_id
+                and j.inicio.astimezone(self._tz).date() == dia
+            ]
+            if len(no_dia) >= self._rules["consultas"]["max_por_paciente_dia"]:
+                return Decision(
+                    allowed=False,
+                    reason_code="patient_daily_limit",
+                    explanation_hint=(
+                        "diga que esse paciente já tem consulta nesse dia e ofereça "
+                        "outro dia, sem prometer as outras consultas pedidas"
+                    ),
+                    audit_payload={**payload, "consultas_no_dia": len(no_dia)},
+                )
 
         return Decision(
             allowed=True,

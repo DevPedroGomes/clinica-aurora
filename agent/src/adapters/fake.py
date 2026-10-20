@@ -91,6 +91,7 @@ class ErpFake:
             inicio=inicio,
             fim=inicio + timedelta(minutes=duracao_min),
             status="agendada",
+            paciente_id=paciente_id,
         )
         self.consultas[cid] = c
         return c

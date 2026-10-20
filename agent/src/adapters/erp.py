@@ -49,6 +49,8 @@ class ConsultaView:
     inicio: datetime
     fim: datetime
     status: str
+    paciente_id: str = ""
+    """Vazio numa vaga sem titular. A P-6 conta consultas por paciente com ele."""
 
     @classmethod
     def de_json(cls, raw: dict[str, Any]) -> "ConsultaView":
@@ -63,6 +65,7 @@ class ConsultaView:
             inicio=datetime.fromisoformat(raw["inicio"]),
             fim=datetime.fromisoformat(raw["fim"]),
             status=raw["status"],
+            paciente_id=raw.get("paciente_id", ""),
         )
 
 

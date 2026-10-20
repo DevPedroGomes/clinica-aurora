@@ -5,7 +5,9 @@
 # depois, sob qual regra uma decisão foi tomada.
 # 2026.08.2 — o expediente passou a valer também para remarcação. Antes só
 # barrava vaga nova, e uma consulta podia ser movida para domingo de madrugada.
-version: "2026.08.2"
+# 2026.10.1 — P-6: uma consulta por paciente por dia. E marcar ou abrir vaga em
+# horário ocupado passou a ser recusa de regra (slot_conflict), não 409 do ERP.
+version: "2026.10.1"
 
 cancelamento:
   # Abaixo desta antecedência, cancelar exige motivo registrado.
@@ -23,6 +25,11 @@ expediente:
     "3": { abre: "08:00", fecha: "18:00" }
     "4": { abre: "08:00", fecha: "18:00" }
     "5": { abre: "08:00", fecha: "12:00" }
+
+consultas:
+  # Quantas consultas o mesmo paciente pode ter no mesmo dia, somando os
+  # profissionais. Vaga sem titular não conta.
+  max_por_paciente_dia: 1
 
 conversa:
   # Teto de escritas por conversa. Não é regra de negócio da clínica: é freio de

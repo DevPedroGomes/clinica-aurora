@@ -428,7 +428,12 @@ async def ler_politica(ctx: Context) -> dict[str, Any]:
             ),
             "expediente": (
                 "Nada é agendado ou remarcado fora do horário de funcionamento, "
-                "nem para o passado, nem para um horário já ocupado."
+                "nem para o passado, nem para um horário já ocupado. Códigos: "
+                "outside_business_hours, slot_in_the_past, slot_conflict."
+            ),
+            "consultas_por_paciente": (
+                "Cada paciente tem no máximo uma consulta por dia, somando os "
+                "profissionais. Código: patient_daily_limit."
             ),
             "teto_de_escritas": (
                 "Há um limite de escritas por sessão. Não é regra da clínica: é "

@@ -172,16 +172,26 @@ def test_p3_encostar_no_fim_da_outra_nao_e_conflito(engine: PolicyEngine):
 
 def test_p4_dentro_do_expediente_passa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(
-        inicio=em(2026, 8, 13, 10), duracao_min=60, at=at
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 10),
+        duracao_min=60,
+        at=at,
     )  # quinta
     assert d.allowed is True
 
 
 def test_p4_domingo_recusa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(
-        inicio=em(2026, 8, 16, 10), duracao_min=30, at=at
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 16, 10),
+        duracao_min=30,
+        at=at,
     )  # domingo
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
@@ -189,8 +199,13 @@ def test_p4_domingo_recusa(engine: PolicyEngine):
 
 def test_p4_sabado_a_tarde_recusa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(
-        inicio=em(2026, 8, 15, 13), duracao_min=30, at=at
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 15, 13),
+        duracao_min=30,
+        at=at,
     )  # sábado 13h
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
@@ -198,27 +213,55 @@ def test_p4_sabado_a_tarde_recusa(engine: PolicyEngine):
 
 def test_p4_antes_de_abrir_recusa(engine: PolicyEngine):
     at = em(2026, 8, 10, 6)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 7, 30), duracao_min=30, at=at)
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 7, 30),
+        duracao_min=30,
+        at=at,
+    )
     assert d.allowed is False
 
 
 def test_p4_atendimento_que_passa_do_fechamento_recusa(engine: PolicyEngine):
     """Começa 17h50 e termina 18h50: o começo cabe, o atendimento não."""
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 17, 50), duracao_min=60, at=at)
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 17, 50),
+        duracao_min=60,
+        at=at,
+    )
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
 
 
 def test_p4_terminar_exatamente_no_fechamento_passa(engine: PolicyEngine):
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 17), duracao_min=60, at=at)
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 17),
+        duracao_min=60,
+        at=at,
+    )
     assert d.allowed is True
 
 
 def test_p4_vaga_no_passado_recusa_antes_de_olhar_o_expediente(engine: PolicyEngine):
     at = em(2026, 8, 13, 12)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 10), duracao_min=30, at=at)
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 10),
+        duracao_min=30,
+        at=at,
+    )
     assert d.allowed is False
     assert d.reason_code == "slot_in_the_past"
 
@@ -226,9 +269,103 @@ def test_p4_vaga_no_passado_recusa_antes_de_olhar_o_expediente(engine: PolicyEng
 def test_p4_atravessar_a_meia_noite_recusa(engine: PolicyEngine):
     """Defesa de borda: fim no dia seguinte nunca é 'dentro do expediente'."""
     at = em(2026, 8, 10, 9)
-    d = engine.pode_abrir_vaga(inicio=em(2026, 8, 13, 23, 45), duracao_min=60, at=at)
+    d = engine.pode_marcar(
+        paciente_id=None,
+        profissional_id="p1",
+        agenda=[],
+        inicio=em(2026, 8, 13, 23, 45),
+        duracao_min=60,
+        at=at,
+    )
     assert d.allowed is False
     assert d.reason_code == "outside_business_hours"
+
+
+# -- P-3 e P-6 ao marcar -----------------------------------------------------
+#
+# Marcar ou abrir vaga em horário ocupado era 409 do ERP, contado como FALHA DO
+# ERP: na segunda vez a conversa encerrava dizendo "o ERP falhou duas vezes".
+# Agora é recusa de regra, como na remarcação. E a injeção "marque 10 consultas
+# para a Marta" encontra a P-6: uma consulta por paciente por dia.
+
+AGORA_P6 = em(2026, 8, 10, 9)
+
+
+def amanha(hora: int, minuto: int = 0) -> datetime:
+    return em(2026, 8, 11, hora, minuto)
+
+
+def marcar(engine: PolicyEngine, paciente: str | None, agenda: list[Janela]):
+    return engine.pode_marcar(
+        paciente_id=paciente,
+        profissional_id="prof_helena",
+        inicio=amanha(14),
+        duracao_min=30,
+        agenda=agenda,
+        at=AGORA_P6,
+    )
+
+
+def test_p6_segunda_consulta_da_paciente_no_dia_recusa(engine: PolicyEngine):
+    agenda = [
+        Janela(
+            "cons_9", "prof_bruno", amanha(9), amanha(9, 30), paciente_id="pac_marta"
+        )
+    ]
+    d = marcar(engine, "pac_marta", agenda)
+    assert (d.allowed, d.reason_code) == (False, "patient_daily_limit")
+    assert d.audit_payload["consultas_no_dia"] == 1
+
+
+def test_p6_outra_paciente_no_mesmo_dia_passa(engine: PolicyEngine):
+    agenda = [
+        Janela("cons_9", "prof_bruno", amanha(9), amanha(9, 30), paciente_id="pac_ana")
+    ]
+    assert marcar(engine, "pac_marta", agenda).allowed is True
+
+
+def test_p6_mesma_paciente_em_outro_dia_passa(engine: PolicyEngine):
+    depois = em(2026, 8, 12, 9)
+    agenda = [
+        Janela(
+            "cons_9",
+            "prof_bruno",
+            depois,
+            depois + timedelta(minutes=30),
+            paciente_id="pac_marta",
+        )
+    ]
+    assert marcar(engine, "pac_marta", agenda).allowed is True
+
+
+def test_p6_vaga_sem_paciente_nao_conta(engine: PolicyEngine):
+    agenda = [
+        Janela(
+            "cons_9", "prof_bruno", amanha(9), amanha(9, 30), paciente_id="pac_marta"
+        )
+    ]
+    d = marcar(engine, None, agenda)
+    assert (d.allowed, d.reason_code) == (True, "allowed")
+
+
+def test_p3_marcar_em_horario_ocupado_recusa(engine: PolicyEngine):
+    agenda = [Janela("cons_9", "prof_helena", amanha(14), amanha(15))]
+    d = marcar(engine, "pac_marta", agenda)
+    assert (d.allowed, d.reason_code) == (False, "slot_conflict")
+    assert d.audit_payload["conflita_com"] == "cons_9"
+
+
+def test_p3_marcar_no_horario_de_outro_profissional_passa(engine: PolicyEngine):
+    agenda = [Janela("cons_9", "prof_bruno", amanha(14), amanha(15))]
+    assert marcar(engine, "pac_marta", agenda).allowed is True
+
+
+def test_p3_vem_antes_da_p6(engine: PolicyEngine):
+    """Horário ocupado é a recusa mais útil: a pessoa troca o horário primeiro."""
+    agenda = [
+        Janela("cons_9", "prof_helena", amanha(14), amanha(15), paciente_id="pac_marta")
+    ]
+    assert marcar(engine, "pac_marta", agenda).reason_code == "slot_conflict"
 
 
 # -- P-4 vale também para remarcação ------------------------------------------
@@ -307,7 +444,12 @@ def test_p5_teto_de_escritas(engine: PolicyEngine, feitas: int, esperado: bool):
 
 
 def test_regras_vem_de_arquivo_versionado(engine: PolicyEngine):
-    assert engine.version == "2026.08.2"
+    assert engine.version == "2026.10.1"
+
+
+def test_versao_da_regra_e_2026_10_1(engine: PolicyEngine):
+    """2026.10.1: P-6 entra, e marcar em horário ocupado vira recusa de regra."""
+    assert engine.version == "2026.10.1"
 
 
 def test_engine_aceita_regras_injetadas():

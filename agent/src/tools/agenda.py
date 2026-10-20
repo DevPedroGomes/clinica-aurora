@@ -50,10 +50,35 @@ def _janelas(consultas: list[ConsultaView]) -> list[Janela]:
             profissional_id=c.profissional_id,
             inicio=c.inicio,
             fim=c.fim,
+            paciente_id=c.paciente_id,
         )
         for c in consultas
         if c.status == "agendada"
     ]
+
+
+async def _agenda_do_dia(
+    ctx: AgentContext, inicio: datetime
+) -> list[Janela] | ToolError:
+    """A agenda do dia inteiro, dos dois profissionais, para P-3 e P-6.
+
+    Os dois profissionais porque a P-6 conta as consultas do paciente com
+    qualquer um deles. Erro de leitura segue o padrão da remarcação: vira
+    ToolError, nunca exceção solta.
+    """
+    try:
+        consultas = await ctx.erp.listar(
+            profissional_id=None, data=inicio.astimezone(BAHIA), at=ctx.at
+        )
+    except ErpIndisponivel:
+        return INDISPONIVEL
+    except ErpRecusou as exc:
+        return ToolError(
+            code="erp_rejected",
+            user_message="Não consegui consultar a agenda para checar o horário.",
+            retry_hint=exc.detail,
+        )
+    return _janelas(consultas)
 
 
 def _resumo(c: ConsultaView) -> dict[str, str]:
@@ -351,8 +376,17 @@ async def abrir_vaga(
             user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
         )
 
-    decisao = ctx.policy.pode_abrir_vaga(
-        inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
+    agenda = await _agenda_do_dia(ctx, inicio)
+    if isinstance(agenda, ToolError):
+        return agenda
+
+    decisao = ctx.policy.pode_marcar(
+        paciente_id=None,
+        profissional_id=data.profissional_id,
+        inicio=inicio,
+        duracao_min=data.duracao_min,
+        agenda=agenda,
+        at=ctx.at,
     )
     if executar or not decisao.allowed:
         ctx.registrar(
@@ -447,8 +481,8 @@ async def marcar_consulta(
     ouvia que o vínculo com o paciente "é feito em outro lugar do fluxo", e a
     linha entrava na agenda com o paciente em branco.
 
-    Passa pela MESMA política de abrir_vaga: é a mesma ocupação de agenda, e o
-    que muda é só ter titular.
+    Passa pela MESMA política de abrir_vaga (`pode_marcar`): é a mesma ocupação
+    de agenda, e o que muda é ter titular, que é o que liga a P-6.
     """
     inicio = ler_instante(data.inicio)
     if inicio is None:
@@ -457,8 +491,17 @@ async def marcar_consulta(
             user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
         )
 
-    decisao = ctx.policy.pode_abrir_vaga(
-        inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
+    agenda = await _agenda_do_dia(ctx, inicio)
+    if isinstance(agenda, ToolError):
+        return agenda
+
+    decisao = ctx.policy.pode_marcar(
+        paciente_id=data.paciente_id,
+        profissional_id=data.profissional_id,
+        inicio=inicio,
+        duracao_min=data.duracao_min,
+        agenda=agenda,
+        at=ctx.at,
     )
     if executar or not decisao.allowed:
         ctx.registrar(
