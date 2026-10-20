@@ -51,10 +51,45 @@ PROFISSIONAIS = [
     ),
 ]
 
+
+def mascarar_telefone(numero: str) -> str:
+    """`+55 71 90000-0001` vira `+55 71 9****-**01`.
+
+    Mantém o país, o DDD e o nono dígito, troca o resto por `*` e preserva os
+    dois finais. Uma regra só, porque a máscara antiga era escrita à mão em cada
+    linha e uma delas saiu com um dígito a mais.
+    """
+    prefixo, resto = numero[:8], numero[8:]
+    total = sum(ch.isdigit() for ch in resto)
+    saida: list[str] = []
+    vistos = 0
+    for ch in resto:
+        if ch.isdigit():
+            vistos += 1
+            saida.append(ch if vistos > total - 2 else "*")
+        else:
+            saida.append(ch)
+    return prefixo + "".join(saida)
+
+
+# Números claramente fictícios (+55 71 90000-00NN), e mesmo assim só saem
+# mascarados: o ERP é público, e o agente nunca precisa do número inteiro.
 PACIENTES = [
-    Paciente(id="pac_ana", nome="Ana Ribeiro", telefone="(71) 9****-**32"),
-    Paciente(id="pac_joao", nome="João Meireles", telefone="(71) 9****-**07"),
-    Paciente(id="pac_marta", nome="Marta Lins", telefone="(71) 9****-**415"),
+    Paciente(
+        id="pac_ana",
+        nome="Ana Ribeiro",
+        telefone=mascarar_telefone("+55 71 90000-0001"),
+    ),
+    Paciente(
+        id="pac_joao",
+        nome="João Meireles",
+        telefone=mascarar_telefone("+55 71 90000-0002"),
+    ),
+    Paciente(
+        id="pac_marta",
+        nome="Marta Lins",
+        telefone=mascarar_telefone("+55 71 90000-0003"),
+    ),
 ]
 
 

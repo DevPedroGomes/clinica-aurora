@@ -30,7 +30,7 @@ class Paciente(BaseModel):
     id: str = Field(examples=["pac_ana"])
     nome: str = Field(examples=["Ana Ribeiro"])
     telefone: str = Field(
-        examples=["(71) 9****-**32"],
+        examples=["+55 71 9****-**01"],
         description="Mascarado de propósito: a demo é pública e o agente nunca precisa do número inteiro.",
     )
 

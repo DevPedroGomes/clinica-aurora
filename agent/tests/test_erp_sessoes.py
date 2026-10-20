@@ -50,6 +50,7 @@ def _emitir(c: TestClient, ip: str = "203.0.113.7") -> str:
         ("post", "/admin/reset"),
         ("get", "/admin/estado"),
         ("get", "/consultas"),
+        ("get", "/pacientes"),
     ],
 )
 @pytest.mark.parametrize("origem", [DE_FORA, {}])
