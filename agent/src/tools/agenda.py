@@ -13,19 +13,18 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
 from ..adapters.erp import ConsultaView, ErpIndisponivel, ErpRecusou
 from ..policy.engine import Janela
 from .registry import AgentContext, ToolError, tool
+from .tempo import BAHIA, ler_instante
 
-# A clínica tem UM fuso e é o dela. Interpretar "2026-08-05" no fuso do
-# servidor (UTC) faz meia-noite virar 21h do dia anterior — e a busca do dia
-# devolve vazio, que o agente reporta como "não há consultas". Bug silencioso
+# A clínica tem UM fuso e é o dela (`tempo.BAHIA`). Interpretar "2026-08-05" no
+# fuso do servidor (UTC) faz meia-noite virar 21h do dia anterior — e a busca do
+# dia devolve vazio, que o agente reporta como "não há consultas". Bug silencioso
 # e caro: o meio-dia local mata o off-by-one sem depender de horário de verão.
-BAHIA = ZoneInfo("America/Bahia")
 
 
 def _dia_local(data: str) -> datetime:
@@ -142,15 +141,12 @@ class RemarcarConsultaInput(BaseModel):
 async def remarcar_consulta(
     ctx: AgentContext, data: RemarcarConsultaInput
 ) -> dict[str, Any] | ToolError:
-    try:
-        novo_inicio = datetime.fromisoformat(data.novo_inicio)
-    except ValueError:
+    novo_inicio = ler_instante(data.novo_inicio)
+    if novo_inicio is None:
         return ToolError(
             code="invalid_datetime",
             user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
         )
-    if novo_inicio.tzinfo is None:
-        novo_inicio = novo_inicio.replace(tzinfo=ctx.at.tzinfo)
 
     try:
         # O id vem do modelo, então é conteúdo não confiável: resolvê-lo contra o
@@ -336,15 +332,12 @@ class AbrirVagaInput(BaseModel):
 async def abrir_vaga(
     ctx: AgentContext, data: AbrirVagaInput
 ) -> dict[str, Any] | ToolError:
-    try:
-        inicio = datetime.fromisoformat(data.inicio)
-    except ValueError:
+    inicio = ler_instante(data.inicio)
+    if inicio is None:
         return ToolError(
             code="invalid_datetime",
             user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
         )
-    if inicio.tzinfo is None:
-        inicio = inicio.replace(tzinfo=ctx.at.tzinfo)
 
     decisao = ctx.policy.pode_abrir_vaga(
         inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
@@ -442,15 +435,12 @@ async def marcar_consulta(
     Passa pela MESMA política de abrir_vaga: é a mesma ocupação de agenda, e o
     que muda é só ter titular.
     """
-    try:
-        inicio = datetime.fromisoformat(data.inicio)
-    except ValueError:
+    inicio = ler_instante(data.inicio)
+    if inicio is None:
         return ToolError(
             code="invalid_datetime",
             user_message="Não entendi o horário. Pode repetir com o dia e a hora?",
         )
-    if inicio.tzinfo is None:
-        inicio = inicio.replace(tzinfo=ctx.at.tzinfo)
 
     decisao = ctx.policy.pode_abrir_vaga(
         inicio=inicio, duracao_min=data.duracao_min, at=ctx.at

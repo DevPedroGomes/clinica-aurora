@@ -27,7 +27,7 @@ from src.tools.agenda import (
     marcar_consulta,
     remarcar_consulta,
 )
-from src.tools.registry import REGISTRY, AgentContext, ToolError
+from src.tools.registry import REGISTRY, AgentContext, ToolError, assinatura
 
 BAHIA = ZoneInfo("America/Bahia")
 AGORA = datetime(2026, 8, 10, 9, 0, tzinfo=BAHIA)  # segunda-feira
@@ -492,9 +492,9 @@ async def test_recusa_do_erp_na_listagem(ctx_recusa: AgentContext):
     assert out.code == "erp_rejected"
 
 
-async def test_horario_sem_fuso_assume_o_da_conversa(ctx: AgentContext, erp: ErpFake):
-    """O modelo às vezes manda ISO sem offset. Cair no fuso do turno é melhor
-    que recusar — e é determinístico, porque `ctx.at` é do servidor."""
+async def test_horario_sem_fuso_assume_o_da_clinica(ctx: AgentContext, erp: ErpFake):
+    """O modelo às vezes manda ISO sem offset. Cair no fuso da clínica é melhor
+    que recusar, e não depende do fuso de `ctx.at`, que na API é UTC."""
     out = await remarcar_consulta(
         ctx,
         RemarcarConsultaInput(consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00"),
@@ -598,3 +598,50 @@ async def test_marcar_consulta_escala_quando_o_erp_cai(ctx: AgentContext, erp: E
     )
     assert isinstance(out, ToolError)
     assert out.code == "erp_unavailable"
+
+
+# -- horário canônico ---------------------------------------------------------
+
+
+async def test_horario_sem_fuso_e_da_clinica_mesmo_com_relogio_em_utc(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Na API, `ctx.at` é UTC. "16:00" sem offset é 16h em Salvador, não 13h."""
+    ctx.at = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    out = await remarcar_consulta(
+        ctx,
+        RemarcarConsultaInput(consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00"),
+    )
+    assert datetime.fromisoformat(out["inicio"]).astimezone(BAHIA).hour == 16
+
+
+def test_assinatura_ignora_formato_e_segundos():
+    a = assinatura(
+        "remarcar_consulta",
+        {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T16:00:00-03:00"},
+    )
+    b = assinatura(
+        "remarcar_consulta",
+        {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T19:00Z"},
+    )
+    assert a == b
+
+
+def test_assinatura_de_horarios_diferentes_continua_diferente():
+    a = assinatura(
+        "abrir_vaga",
+        {
+            "profissional_id": "prof_bruno",
+            "inicio": "2026-08-11T16:00",
+            "duracao_min": 30,
+        },
+    )
+    b = assinatura(
+        "abrir_vaga",
+        {
+            "profissional_id": "prof_bruno",
+            "inicio": "2026-08-11T17:00",
+            "duracao_min": 30,
+        },
+    )
+    assert a != b

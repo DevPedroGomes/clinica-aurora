@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ..adapters.erp import ErpAdapter
 from ..policy.engine import PolicyEngine
+from .tempo import instante_canonico
 
 # Logger dedicado: o audit sai em JSON por linha, separado do access log do
 # uvicorn, para poder ser coletado sem grep de texto livre.
@@ -159,6 +160,8 @@ class ToolSpec:
 
 REGISTRY: dict[str, ToolSpec] = {}
 
+_CAMPOS_DE_HORARIO = ("inicio", "novo_inicio")
+
 
 def tool(
     *,
@@ -205,6 +208,10 @@ def assinatura(nome: str, entrada: dict[str, Any]) -> str:
     continua valendo depois que o agente anexa o motivo que a pessoa deu.
     Ordenada porque a mesma intenção precisa produzir a mesma assinatura.
 
+    Horário entra na forma canônica (`tempo.instante_canonico`): "16:00-03:00"
+    e "19:00Z" são o mesmo instante, e compará-los como texto fazia o gate
+    pedir uma segunda confirmação para a operação que a pessoa já tinha aceito.
+
     Mora aqui, e não no loop do agente, porque é propriedade da TOOL e não de
     quem a chama: o servidor MCP precisa da mesma identidade para aplicar o
     mesmo gate, e importá-la de `agent.py` arrastaria o SDK da Anthropic para
@@ -213,6 +220,10 @@ def assinatura(nome: str, entrada: dict[str, Any]) -> str:
     spec = REGISTRY.get(nome)
     campos = spec.confirm_fields if spec else tuple(entrada)
     relevante = {k: entrada.get(k) for k in campos}
+    for campo in _CAMPOS_DE_HORARIO:
+        valor = relevante.get(campo)
+        if isinstance(valor, str):
+            relevante[campo] = instante_canonico(valor)
     return f"{nome}:{json.dumps(relevante, sort_keys=True, ensure_ascii=False)}"
 
 

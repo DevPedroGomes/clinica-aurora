@@ -246,6 +246,38 @@ async def test_confirmar_uma_coisa_nao_autoriza_outra(ctx: AgentContext, erp: Er
     assert ctx.escritas_realizadas == 0
 
 
+async def test_horario_equivalente_em_outro_formato_vale_a_mesma_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Proposta em -03:00, "sim" em Z: é o mesmo instante e a mesma operação."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T16:00:00-03:00"},
+            )
+        ],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-11T19:00Z"},
+                id_="toolu_2",
+            )
+        ],
+        [texto("Pronto, remarquei para as 16h.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos_2 = await coletar(agente, conv, "sim", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 16
+    gates = [e for e in eventos_1 + eventos_2 if e.tipo == "confirmation_required"]
+    assert len(gates) == 1
+
+
 # -- turno mudo ---------------------------------------------------------------
 #
 # Regressão de um bug encontrado usando a demo em produção. Quando o gate tira
