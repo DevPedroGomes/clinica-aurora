@@ -64,6 +64,7 @@ from src.adapters.erp import ErpAdapter  # noqa: E402
 from src.policy.engine import PolicyEngine  # noqa: E402
 from src.tools.agenda import (  # noqa: E402
     abrir_vaga,
+    buscar_paciente,
     cancelar_consulta,
     listar_agenda,
     marcar_consulta,
@@ -81,6 +82,7 @@ SESSAO_TTL = 2 * 60 * 60
 MAX_SESSOES = 200
 
 HANDLERS = {
+    "buscar_paciente": buscar_paciente,
     "listar_agenda": listar_agenda,
     "remarcar_consulta": remarcar_consulta,
     "cancelar_consulta": cancelar_consulta,
@@ -326,14 +328,22 @@ def _checar_escrita(
 # um input model ganhar campo e a assinatura aqui nao, o teste quebra.
 
 
+@servidor.tool(description=REGISTRY["buscar_paciente"].description)
+async def buscar_paciente_tool(ctx: Context, nome: str) -> dict[str, Any]:
+    return await _executar("buscar_paciente", {"nome": nome}, ctx)
+
+
 @servidor.tool(description=REGISTRY["listar_agenda"].description)
 async def listar_agenda_tool(
     ctx: Context,
+    paciente_id: str | None = None,
     profissional_id: str | None = None,
     data: str | None = None,
 ) -> dict[str, Any]:
     return await _executar(
-        "listar_agenda", {"profissional_id": profissional_id, "data": data}, ctx
+        "listar_agenda",
+        {"paciente_id": paciente_id, "profissional_id": profissional_id, "data": data},
+        ctx,
     )
 
 

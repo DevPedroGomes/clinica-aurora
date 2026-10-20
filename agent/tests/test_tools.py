@@ -9,19 +9,23 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
-from src.adapters.erp import ConsultaView, ErpRecusou
+from src.adapters.erp import ConsultaView, ErpRecusou, PacienteView
 from src.adapters.fake import ErpFake
 from src.policy.engine import PolicyEngine
 from src.tools.agenda import (
     AbrirVagaInput,
+    BuscarPacienteInput,
     CancelarConsultaInput,
     ListarAgendaInput,
     MarcarConsultaInput,
     RemarcarConsultaInput,
     abrir_vaga,
+    buscar_paciente,
     cancelar_consulta,
     listar_agenda,
     marcar_consulta,
@@ -34,16 +38,21 @@ AGORA = datetime(2026, 8, 10, 9, 0, tzinfo=BAHIA)  # segunda-feira
 
 
 def consulta(
-    cid: str, hora: datetime, prof: str = "prof_bruno", dur: int = 30
+    cid: str,
+    hora: datetime,
+    prof: str = "prof_bruno",
+    dur: int = 30,
+    paciente: tuple[str, str] = ("pac_ana", "Ana Ribeiro"),
 ) -> ConsultaView:
     return ConsultaView(
         id=cid,
-        paciente_nome="Ana Ribeiro",
+        paciente_nome=paciente[1],
         profissional_id=prof,
         profissional_nome="Dr. Bruno Salles",
         inicio=hora,
         fim=hora + timedelta(minutes=dur),
         status="agendada",
+        paciente_id=paciente[0],
     )
 
 
@@ -82,8 +91,9 @@ def test_toda_tool_de_escrita_exige_confirmacao():
             ), f"{spec.name} escreve sem exigir confirmação"
 
 
-def test_as_cinco_tools_estao_registradas():
+def test_as_seis_tools_estao_registradas():
     assert set(REGISTRY) == {
+        "buscar_paciente",
         "listar_agenda",
         "remarcar_consulta",
         "cancelar_consulta",
@@ -538,9 +548,10 @@ async def test_marcar_consulta_grava_com_o_paciente(ctx: AgentContext, erp: ErpF
     assert not isinstance(out, ToolError)
     # O ponto da tool: a linha nasce COM titular. Antes dela, marcar consulta
     # para alguém só existia como abrir_vaga, e a agenda ficava com o paciente
-    # em branco.
-    assert out["paciente"] == "João Meireles"
+    # em branco. O nome fica no ERP; a saída da tool não o repete.
+    assert "paciente" not in out
     assert erp.consultas[out["consulta_id"]].paciente_nome == "João Meireles"
+    assert erp.consultas[out["consulta_id"]].paciente_id == "pac_joao"
 
 
 async def test_marcar_consulta_passa_pela_mesma_politica_de_expediente(
@@ -834,3 +845,109 @@ async def test_erp_recusa_a_consulta_depois_da_politica(
     )
     assert isinstance(out, ToolError)
     assert out.code == "erp_rejected"
+
+
+# -- nome de paciente só sai quando a pessoa já disse -------------------------
+
+NOMES = ("Ana Ribeiro", "João Meireles", "Marta Lins")
+
+
+async def test_paciente_fora_do_cadastro_nao_lista_os_outros(ctx: AgentContext):
+    out = await buscar_paciente(ctx, BuscarPacienteInput(nome="Maria Teste"))
+    assert isinstance(out, ToolError) and out.code == "patient_not_found"
+    assert not any(n in out.user_message for n in ("Ana", "João", "Marta"))
+
+
+@pytest.mark.parametrize("nome", ["joao meireles", "Joao", "JOÃO", "  joão  "])
+async def test_buscar_paciente_ignora_acento_e_caixa(ctx: AgentContext, nome: str):
+    out = await buscar_paciente(ctx, BuscarPacienteInput(nome=nome))
+    assert out == {"paciente_id": "pac_joao", "nome": "João Meireles"}
+
+
+async def test_buscar_paciente_ambiguo_pede_sobrenome(ctx: AgentContext):
+    ctx.erp = ErpFake(  # type: ignore[assignment]
+        pacientes=[
+            PacienteView(id="pac_ana", nome="Ana Ribeiro"),
+            PacienteView(id="pac_marta", nome="Ana Souza"),
+        ]
+    )
+    ambiguo = await buscar_paciente(ctx, BuscarPacienteInput(nome="ana"))
+    assert isinstance(ambiguo, ToolError) and ambiguo.code == "patient_ambiguous"
+    assert "Souza" not in ambiguo.user_message and "Ribeiro" not in ambiguo.user_message
+
+    certo = await buscar_paciente(ctx, BuscarPacienteInput(nome="Ana Souza"))
+    assert certo == {"paciente_id": "pac_marta", "nome": "Ana Souza"}
+
+
+def test_buscar_paciente_nao_aceita_nome_vazio_nem_gigante():
+    with pytest.raises(ValidationError):
+        BuscarPacienteInput(nome="a")
+    with pytest.raises(ValidationError):
+        BuscarPacienteInput(nome="x" * 81)
+
+
+async def test_buscar_paciente_com_erp_fora_nao_inventa(
+    ctx: AgentContext, erp: ErpFake
+):
+    erp.down = True
+    out = await buscar_paciente(ctx, BuscarPacienteInput(nome="Ana"))
+    assert isinstance(out, ToolError) and out.code == "erp_unavailable"
+
+
+async def test_buscar_paciente_com_leitura_recusada(ctx: AgentContext, erp: ErpFake):
+    async def recusa(*a, **k):
+        raise ErpRecusou(429, "Muitas leituras.")
+
+    erp.listar_pacientes = recusa  # type: ignore[method-assign]
+    out = await buscar_paciente(ctx, BuscarPacienteInput(nome="Ana"))
+    assert isinstance(out, ToolError) and out.code == "erp_rejected"
+
+
+async def test_listar_sem_paciente_nao_mostra_nome_de_ninguem(
+    ctx: AgentContext, erp: ErpFake
+):
+    erp.consultas["cons_4"] = consulta(
+        "cons_4",
+        datetime(2026, 8, 12, 10, 0, tzinfo=BAHIA),
+        paciente=("pac_marta", "Marta Lins"),
+    )
+    erp.consultas["cons_5"] = consulta(
+        "cons_5", datetime(2026, 8, 12, 11, 0, tzinfo=BAHIA), paciente=("", "")
+    )
+    out = await listar_agenda(ctx, ListarAgendaInput())
+    texto = json.dumps(out, ensure_ascii=False)
+    assert not any(n in texto for n in NOMES)
+    linhas = {c["consulta_id"]: c["paciente"] for c in out["consultas"]}
+    assert linhas["cons_4"] == "outro paciente"
+    assert linhas["cons_5"] == "vaga livre"
+
+
+async def test_listar_com_paciente_mostra_so_o_nome_dela(
+    ctx: AgentContext, erp: ErpFake
+):
+    erp.consultas["cons_4"] = consulta(
+        "cons_4",
+        datetime(2026, 8, 12, 10, 0, tzinfo=BAHIA),
+        paciente=("pac_marta", "Marta Lins"),
+    )
+    out = await listar_agenda(ctx, ListarAgendaInput(paciente_id="pac_marta"))
+    linhas = {c["consulta_id"]: c["paciente"] for c in out["consultas"]}
+    assert linhas["cons_4"] == "Marta Lins"
+    assert linhas["cons_1"] == "outro paciente"
+    assert "Ana Ribeiro" not in json.dumps(out, ensure_ascii=False)
+
+
+async def test_escrita_nao_devolve_nome_de_paciente(ctx: AgentContext, erp: ErpFake):
+    remarcada = await remarcar_consulta(
+        ctx,
+        RemarcarConsultaInput(
+            consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00-03:00"
+        ),
+    )
+    cancelada = await cancelar_consulta(
+        ctx, CancelarConsultaInput(consulta_id="cons_2", motivo="paciente pediu")
+    )
+    for saida in (remarcada, cancelada):
+        assert not isinstance(saida, ToolError)
+        assert "paciente" not in saida
+        assert not any(n in json.dumps(saida, ensure_ascii=False) for n in NOMES)

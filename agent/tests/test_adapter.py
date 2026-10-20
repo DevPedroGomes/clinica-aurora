@@ -191,3 +191,22 @@ async def test_cancelar_manda_o_motivo(client: httpx.AsyncClient):
     c = await adapter(client).cancelar("cons_1", "paciente adoeceu", at=AGORA)
     assert c.status == "cancelada"
     assert "paciente adoeceu" in rota.calls.last.request.content.decode()
+
+
+@respx.mock
+async def test_listar_pacientes_le_o_cadastro_da_sessao(client: httpx.AsyncClient):
+    rota = respx.get(f"{BASE}/pacientes").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "pac_ana",
+                    "nome": "Ana Ribeiro",
+                    "telefone": "+55 71 9****-**01",
+                }
+            ],
+        )
+    )
+    pacientes = await adapter(client).listar_pacientes(at=AGORA)
+    assert [(p.id, p.nome) for p in pacientes] == [("pac_ana", "Ana Ribeiro")]
+    assert rota.calls.last.request.headers["X-Tenant-Id"] == "t1"

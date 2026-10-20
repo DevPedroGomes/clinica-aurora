@@ -17,6 +17,7 @@ decidir ANTES de o gate pedir o "sim".
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -82,19 +83,121 @@ async def _agenda_do_dia(
 
 
 def _resumo(c: ConsultaView) -> dict[str, str]:
-    """Só o que a conversa precisa (regra 7 / G-18)."""
+    """Só o que a conversa precisa (regra 7 / G-18).
+
+    Sem o nome do paciente: quem conversa não está identificado, e a escrita
+    foi pedida por alguém que já disse de quem era a consulta. Repetir o nome
+    na saída era o caminho para o agente dizê-lo a quem não perguntou.
+    """
     return {
         "consulta_id": c.id,
-        "paciente": c.paciente_nome,
         "profissional": c.profissional_nome,
         "inicio": c.inicio.isoformat(),
     }
+
+
+def _titular(c: ConsultaView, paciente_id: str | None) -> str:
+    """O que a listagem diz de quem é a linha.
+
+    O nome só aparece quando a pessoa já disse de quem quer saber (e o modelo
+    passou o id que `buscar_paciente` devolveu). Nas outras linhas, "outro
+    paciente": horário ocupado é ocupado, sem dizer por quem.
+    """
+    if not (c.paciente_id or c.paciente_nome):
+        return "vaga livre"
+    if paciente_id and c.paciente_id == paciente_id:
+        return c.paciente_nome
+    return "outro paciente"
+
+
+def _sem_acento(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(ch for ch in decomposto if not unicodedata.combining(ch)).casefold()
+
+
+# -- 0. buscar paciente -------------------------------------------------------
+
+
+class BuscarPacienteInput(BaseModel):
+    nome: str = Field(
+        min_length=2,
+        max_length=80,
+        description="Nome que a pessoa disse: completo ou só o primeiro nome.",
+    )
+
+
+@tool(
+    scope="read",
+    idempotent=True,
+    requires_confirmation=False,
+    rate_limit=10,
+    pii_level="low",
+    description=(
+        "Acha UM paciente do cadastro pelo nome que a pessoa disse (completo ou "
+        "primeiro nome, sem diferença de acento ou maiúscula). Devolve o id e o "
+        "nome, ou diz que não encontrou ou que há mais de um. Nunca lista o "
+        "cadastro."
+    ),
+    input_model=BuscarPacienteInput,
+)
+async def buscar_paciente(
+    ctx: AgentContext, data: BuscarPacienteInput
+) -> dict[str, str] | ToolError:
+    """Nome que a pessoa disse → id do cadastro, e nunca uma lista.
+
+    Com o cadastro inteiro no contexto, o agente respondia a quem pedia "Maria
+    Teste" que ela não existia, "mas temos Ana, João e Marta". Quem conversa não
+    está identificado; nomear um paciente para ele é o mínimo a evitar.
+    """
+    try:
+        pacientes = await ctx.erp.listar_pacientes(at=ctx.at)
+    except ErpIndisponivel:
+        return INDISPONIVEL
+    except ErpRecusou as exc:
+        return ToolError(
+            code="erp_rejected",
+            user_message="Não consegui consultar o cadastro agora.",
+            retry_hint=exc.detail,
+        )
+
+    procurado = _sem_acento(data.nome.strip())
+    achados = [
+        p
+        for p in pacientes
+        if _sem_acento(p.nome) == procurado
+        or (_sem_acento(p.nome).split() or [""])[0] == procurado
+    ]
+    ctx.registrar(
+        kind="tool_call",
+        tool="buscar_paciente",
+        input={"nome": data.nome},
+        output={"encontrados": len(achados)},
+        reason_code=None,
+    )
+    if not achados:
+        return ToolError(
+            code="patient_not_found",
+            user_message="Não encontrei esse nome no cadastro.",
+        )
+    if len(achados) > 1:
+        return ToolError(
+            code="patient_ambiguous",
+            user_message="Há mais de um paciente com esse nome. Peça o sobrenome.",
+        )
+    return {"paciente_id": achados[0].id, "nome": achados[0].nome}
 
 
 # -- 1. listar ----------------------------------------------------------------
 
 
 class ListarAgendaInput(BaseModel):
+    paciente_id: Literal["pac_ana", "pac_joao", "pac_marta"] | None = Field(
+        default=None,
+        description=(
+            "Paciente que a pessoa nomeou, com o id de buscar_paciente. Só as "
+            "linhas dele trazem o nome; as outras dizem 'outro paciente'."
+        ),
+    )
     profissional_id: Literal["prof_bruno", "prof_helena"] | None = Field(
         default=None,
         description="Profissional da clínica. Omita para ver a agenda dos dois.",
@@ -136,7 +239,11 @@ async def listar_agenda(
             retry_hint=exc.detail,
         )
 
-    saida = {"consultas": [_resumo(c) for c in consultas]}
+    saida = {
+        "consultas": [
+            {**_resumo(c), "paciente": _titular(c, data.paciente_id)} for c in consultas
+        ]
+    }
     ctx.registrar(
         kind="tool_call",
         tool="listar_agenda",

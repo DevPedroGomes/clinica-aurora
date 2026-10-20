@@ -31,6 +31,7 @@ from .pricing import custo as calcular_custo
 from .prompts.system import PROMPT_ID, system_blocks
 from .tools.agenda import (
     abrir_vaga,
+    buscar_paciente,
     cancelar_consulta,
     listar_agenda,
     marcar_consulta,
@@ -92,6 +93,7 @@ def _frase(ctx: AgentContext, chave: str) -> str:
 
 
 HANDLERS = {
+    "buscar_paciente": buscar_paciente,
     "listar_agenda": listar_agenda,
     "remarcar_consulta": remarcar_consulta,
     "cancelar_consulta": cancelar_consulta,
@@ -619,12 +621,9 @@ def _com_contexto(texto: str, ctx: AgentContext) -> str:
         "<contexto_operacional>\n"
         f"agora: {local.strftime('%A, %d/%m/%Y %H:%M')} ({local.tzname()})\n"
         "profissionais: prof_bruno (Dr. Bruno Salles) · prof_helena (Dra. Helena Costa)\n"
-        # O cadastro de pacientes entra aqui pelo mesmo motivo dos profissionais:
-        # `marcar_consulta` recebe um id de domínio fechado, e sem a lista o
-        # modelo não teria como traduzir "marca para a Ana" no id certo.
-        "pacientes: pac_ana (Ana Ribeiro) · pac_joao (João Meireles) · pac_marta (Marta Lins)\n"
-        "  Só existem estes três. Pedido para outra pessoa: diga que ela não está\n"
-        "  no cadastro e que a recepção precisa cadastrá-la antes.\n"
+        # O cadastro de pacientes NÃO entra aqui. Com a lista no turno, o agente
+        # dizia a quem pedia "Maria Teste" que ela não existia, "mas temos Ana,
+        # João e Marta". O id de `marcar_consulta` sai de `buscar_paciente`.
         "idioma da resposta: o MESMO da mensagem abaixo, sempre. Se ela vier em\n"
         "  inglês, responda em inglês; em espanhol, em espanhol; e assim por\n"
         "  diante. Não é o idioma deste bloco nem o das ferramentas.\n"

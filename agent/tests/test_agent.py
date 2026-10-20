@@ -114,6 +114,7 @@ def erp() -> ErpFake:
                 inicio=datetime(2026, 8, 11, 9, 0, tzinfo=BAHIA),
                 fim=datetime(2026, 8, 11, 9, 30, tzinfo=BAHIA),
                 status="agendada",
+                paciente_id="pac_ana",
             ),
             ConsultaView(
                 id="cons_2",
@@ -123,6 +124,7 @@ def erp() -> ErpFake:
                 inicio=datetime(2026, 8, 12, 9, 0, tzinfo=BAHIA),
                 fim=datetime(2026, 8, 12, 9, 30, tzinfo=BAHIA),
                 status="agendada",
+                paciente_id="pac_joao",
             ),
         ]
     )
@@ -985,6 +987,7 @@ async def test_toda_tool_vai_com_schema_de_dominio_fechado(ctx: AgentContext):
     tools = {t["name"]: t for t in llm.chamadas[0]["tools"]}
 
     assert set(tools) == {
+        "buscar_paciente",
         "listar_agenda",
         "remarcar_consulta",
         "cancelar_consulta",
@@ -1018,6 +1021,18 @@ async def test_contexto_do_turno_traz_o_relogio_sem_sujar_o_prefixo(ctx: AgentCo
     assert "10/08/2026" not in enviado["system"][0]["text"]
 
 
+async def test_contexto_do_turno_nao_traz_o_cadastro(ctx: AgentContext):
+    """O cadastro saiu do contexto: o modelo acha o paciente por `buscar_paciente`.
+
+    Com a lista no turno, o agente respondia "não está no cadastro; temos Ana,
+    João e Marta" para quem não estava identificado.
+    """
+    llm = FakeLLM([texto("oi")])
+    await coletar(Agente(llm), Conversation(), "marca pra Maria Teste", ctx)
+    conteudo = llm.chamadas[0]["messages"][-1]["content"]
+    assert "Marta Lins" not in conteudo and "pac_marta" not in conteudo
+
+
 async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
     ctx: AgentContext, erp: ErpFake
 ):
@@ -1045,7 +1060,7 @@ async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
 
     # A lista de ferramentas é IDÊNTICA nos dois: é isso que preserva o prefixo.
     assert sob_gate["tools"] == normal["tools"]
-    assert len(sob_gate["tools"]) == 5
+    assert len(sob_gate["tools"]) == 6
 
     # E a escrita continua barrada, agora pelo parâmetro em vez da ausência.
     assert normal["tool_choice"] == {"type": "auto"}

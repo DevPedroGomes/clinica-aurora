@@ -222,6 +222,31 @@ async def test_proposta_nao_polui_o_log_de_decisao(ctx: CtxFalso):
     assert [e.tool for e in audit].count("write_quota") == 1
 
 
+# -- nomes de paciente --------------------------------------------------------
+
+
+async def test_buscar_paciente_devolve_um_id_e_nunca_a_lista(ctx: CtxFalso):
+    # `chamar` usa `nome` para a tool; aqui o campo também se chama `nome`.
+    async def buscar(nome: str) -> dict[str, Any]:
+        return await server._executar("buscar_paciente", {"nome": nome}, ctx)  # type: ignore[arg-type]
+
+    achado = await buscar("joao")
+    assert achado == {
+        "ok": True,
+        "resultado": {"paciente_id": "pac_joao", "nome": "João Meireles"},
+        "decisoes": [],
+    }
+    ausente = await buscar("Maria Teste")
+    assert ausente["erro"] == "patient_not_found"
+    assert "Ana" not in str(ausente) and "Marta" not in str(ausente)
+
+
+async def test_agenda_sem_paciente_nao_diz_de_quem_e(ctx: CtxFalso):
+    r = await chamar("listar_agenda", ctx)
+    assert r["ok"] is True
+    assert "Ana Ribeiro" not in str(r) and "João Meireles" not in str(r)
+
+
 # -- isolamento ---------------------------------------------------------------
 
 

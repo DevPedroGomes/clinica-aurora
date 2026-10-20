@@ -11,12 +11,25 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .erp import ConsultaView, ErpIndisponivel, ErpRecusou
+from .erp import ConsultaView, ErpIndisponivel, ErpRecusou, PacienteView
+
+CADASTRO = [
+    PacienteView(id="pac_ana", nome="Ana Ribeiro"),
+    PacienteView(id="pac_joao", nome="João Meireles"),
+    PacienteView(id="pac_marta", nome="Marta Lins"),
+]
 
 
 class ErpFake:
-    def __init__(self, consultas: list[ConsultaView] | None = None) -> None:
+    def __init__(
+        self,
+        consultas: list[ConsultaView] | None = None,
+        pacientes: list[PacienteView] | None = None,
+    ) -> None:
         self.consultas: dict[str, ConsultaView] = {c.id: c for c in (consultas or [])}
+        self.pacientes: list[PacienteView] = list(
+            CADASTRO if pacientes is None else pacientes
+        )
         self.down = False
         self.chamadas: list[tuple[str, str]] = []
         self._proximo_id = 9000
@@ -39,6 +52,10 @@ class ErpFake:
         if data:
             itens = [c for c in itens if c.inicio.date() == data.date()]
         return sorted(itens, key=lambda c: c.inicio)
+
+    async def listar_pacientes(self, at: datetime | None = None) -> list[PacienteView]:
+        self._guarda("listar_pacientes")
+        return list(self.pacientes)
 
     async def obter(self, consulta_id: str, at: datetime) -> ConsultaView | None:
         self._guarda("obter", consulta_id)
@@ -79,11 +96,9 @@ class ErpFake:
         cid = f"cons_{self._proximo_id}"
         c = ConsultaView(
             id=cid,
-            paciente_nome={
-                "pac_ana": "Ana Ribeiro",
-                "pac_joao": "João Meireles",
-                "pac_marta": "Marta Lins",
-            }.get(paciente_id, ""),
+            paciente_nome=next(
+                (p.nome for p in self.pacientes if p.id == paciente_id), ""
+            ),
             profissional_id=profissional_id,
             profissional_nome="Dr. Bruno Salles"
             if profissional_id == "prof_bruno"

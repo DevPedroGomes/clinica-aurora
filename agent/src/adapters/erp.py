@@ -69,6 +69,14 @@ class ConsultaView:
         )
 
 
+@dataclass
+class PacienteView:
+    """Id e nome, e nada mais: o telefone não serve à conversa (G-18)."""
+
+    id: str
+    nome: str
+
+
 class ErpPort(Protocol):
     async def listar(
         self, profissional_id: str | None, data: datetime | None
@@ -204,6 +212,11 @@ class ErpAdapter:
             at=at or datetime.now(data.tzinfo if data else None),
         )
         return [ConsultaView.de_json(item) for item in raw]
+
+    async def listar_pacientes(self, at: datetime) -> list[PacienteView]:
+        """O cadastro de pacientes da sessão (`GET /pacientes`, exige o tenant)."""
+        raw = await self._request("GET", "/pacientes", at=at)
+        return [PacienteView(id=p["id"], nome=p["nome"]) for p in raw]
 
     async def obter(self, consulta_id: str, at: datetime) -> ConsultaView | None:
         try:
