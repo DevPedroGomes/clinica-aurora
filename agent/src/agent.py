@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from anthropic import AsyncAnthropic
 
+from . import detector_idioma, i18n
 from .falhas import FalhaDoProvedor, classificar
 from .flows.state_machine import Conversation, State
 from .pricing import custo as calcular_custo
@@ -53,43 +54,31 @@ MAX_TOKENS = 4096
 EFFORT = os.getenv("AGENT_EFFORT", "low")
 BAHIA = ZoneInfo("America/Bahia")
 MAX_ITERACOES = 6
+# Quantas vezes o turno pede ao modelo para reescrever uma resposta que saiu no
+# idioma errado. Uma: a reescrita com a instrução explícita resolve, e uma
+# segunda chamada paga por turno já é o teto que vale a pena gastar nisso.
+MAX_REESCRITAS_DE_IDIOMA = 1
 
 # O que dizer quando o modelo devolve um turno inteiro sem texto nenhum. Calar
 # é a pior saída: a pessoa fala, some o "pensando…" e nada aparece — parece
 # quebrado. Estas frases são as ÚNICAS que este arquivo põe na boca do agente, e
 # nenhuma delas afirma que algo foi feito.
 #
-# Seguem o idioma da INTERFACE (`ctx.idioma`), não o da pessoa: são as frases
-# que o CÓDIGO emite, então não têm como acompanhar o idioma de quem escreve
-# como o modelo acompanha. É raro chegarem à tela.
-FALLBACKS = {
-    "pt": {
-        "confirmacao": "Posso seguir?",
-        "mudo": "Desculpe, me perdi. Pode repetir?",
-        "recusa": "Não posso ajudar com isso. Só consigo cuidar da agenda da clínica.",
-    },
-    "en": {
-        "confirmacao": "Shall I go ahead?",
-        "mudo": "Sorry, I lost track. Could you say that again?",
-        "recusa": "I can't help with that. I can only handle the clinic's schedule.",
-    },
-}
-FALLBACK_CONFIRMACAO = FALLBACKS["pt"]["confirmacao"]
-FALLBACK_MUDO = FALLBACKS["pt"]["mudo"]
+# Vêm do catálogo (`i18n.py`, chaves `fala.*`) no idioma da SESSÃO: são as
+# frases que o CÓDIGO emite. É raro chegarem à tela.
+FALLBACK_CONFIRMACAO = i18n.texto("fala.confirmacao", "pt")
+FALLBACK_MUDO = i18n.texto("fala.mudo", "pt")
 
 # O que entra no histórico quando uma escrita JÁ foi gravada e a chamada
-# seguinte ao provedor falhou. Sem isto o modelo, no próximo turno, não saberia
-# se a pessoa leu a confirmação, e a pessoa não leu: a tela avisa por código.
-NOTA_ESCRITA_SEM_RESPOSTA = (
-    "(A alteração acima foi gravada no ERP. A resposta à pessoa não chegou a ser "
-    "escrita porque o provedor falhou; a tela avisou que a gravação aconteceu.)"
-)
+# seguinte ao provedor falhou (`nota.escrita_sem_resposta`). Sem isto o modelo,
+# no próximo turno, não saberia se a pessoa leu a confirmação, e a pessoa não
+# leu: a tela avisa por código.
 
 log = logging.getLogger("aurora.agent")
 
 
 def _frase(ctx: AgentContext, chave: str) -> str:
-    return FALLBACKS.get(ctx.idioma, FALLBACKS["pt"])[chave]
+    return i18n.texto(f"fala.{chave}", ctx.idioma)
 
 
 HANDLERS = {
@@ -162,6 +151,17 @@ class Agente:
         turnos_iniciais = conv.turns
         tamanho_do_historico = len(conv.historico)
         escritas_iniciais = ctx.escritas_realizadas
+        idioma_da_conversa_inicial = ctx.idioma_da_conversa
+
+        # Em que idioma este turno responde. Decidido pelo CÓDIGO e dito ao
+        # modelo, em vez de pedir a ele que adivinhe pela mensagem: um "ok" ou
+        # um "yes" curto perdia para o português do resto do contexto, e a
+        # confirmação voltava em português numa sessão em inglês.
+        alvo = detector_idioma.idioma_da_resposta(
+            texto_do_usuario, ctx.idioma, ctx.idioma_da_conversa
+        )
+        if detector_idioma.detectar(texto_do_usuario, minimo=1):
+            ctx.idioma_da_conversa = alvo
 
         gatilho = conv.registrar_turno()
         if gatilho:
@@ -170,7 +170,7 @@ class Agente:
             return
 
         conv.historico.append(
-            {"role": "user", "content": _com_contexto(texto_do_usuario, ctx)}
+            {"role": "user", "content": _com_contexto(texto_do_usuario, ctx, alvo)}
         )
         if conv.state is State.GREETING:
             conv.transicionar(State.QUALIFYING)
@@ -194,18 +194,8 @@ class Agente:
             # dois lados) e a garantia é a mesma, porque o modelo fica impedido
             # de emitir tool_use no nível da amostragem, não por bom senso.
             escolha = {"type": "none"} if ctx.propostas_do_turno else {"type": "auto"}
-            comecou = time.perf_counter()
             try:
-                resposta = await self._client.messages.create(
-                    model=MODEL,
-                    max_tokens=MAX_TOKENS,
-                    system=system_blocks(),
-                    messages=conv.historico,
-                    tools=schema_para_anthropic(),
-                    tool_choice=escolha,
-                    output_config={"effort": EFFORT},
-                    metadata={"user_id": f"tenant:{ctx.tenant_id}"},
-                )
+                resposta, uso = await self._chamar_modelo(ctx, conv.historico, escolha)
             except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
                 falha = classificar(exc)
                 self.saude.registrar_falha(falha.codigo)
@@ -221,12 +211,11 @@ class Agente:
                 escrita_feita = ctx.escritas_realizadas > escritas_iniciais
                 ctx.propostas_do_turno.clear()
                 if escrita_feita:
+                    nota = i18n.texto("nota.escrita_sem_resposta", ctx.idioma)
                     conv.historico.append(
                         {
                             "role": "assistant",
-                            "content": [
-                                {"type": "text", "text": NOTA_ESCRITA_SEM_RESPOSTA}
-                            ],
+                            "content": [{"type": "text", "text": nota}],
                         }
                     )
                 else:
@@ -234,6 +223,7 @@ class Agente:
                     # Restauração, não transição: o turno não aconteceu.
                     conv.state = estado_inicial
                     conv.turns = turnos_iniciais
+                    ctx.idioma_da_conversa = idioma_da_conversa_inicial
                 yield Evento(
                     "provider_error",
                     {
@@ -245,39 +235,7 @@ class Agente:
                 yield Evento("state", {"estado": conv.state.value})
                 return
 
-            self.saude.registrar_ok()
-
-            # O custo entra no log de decisão pelo mesmo motivo que a regra
-            # entra: sem ele, "teto de gasto" é uma afirmação que ninguém pode
-            # conferir. E `cache_hit` fica visível de propósito — é o número que
-            # denuncia invalidador silencioso, que foi como o bug do gate
-            # apareceu. Um prefixo que deveria cachear e nunca lê está mudando
-            # de bytes sem ninguém perceber.
-            latencia_ms = round((time.perf_counter() - comecou) * 1000)
-            c = calcular_custo(MODEL, resposta.usage)
-            ctx.custo_micros += c.micros
-            ctx.chamadas += 1
-            ctx.registrar(
-                kind="llm_call",
-                tool=MODEL,
-                input={"latencia_ms": latencia_ms, "tool_choice": escolha["type"]},
-                output=c.audit_payload(),
-                reason_code=None,
-            )
-            yield Evento(
-                "usage",
-                {
-                    "modelo": MODEL,
-                    "latencia_ms": latencia_ms,
-                    "usd_turno": round(c.usd, 6),
-                    "usd_conversa": round(ctx.custo_micros / 1_000_000, 6),
-                    "input_tokens": c.input_tokens,
-                    "output_tokens": c.output_tokens,
-                    "cache_read_tokens": c.cache_read_tokens,
-                    "cache_hit": c.cache_hit,
-                    "rates_version": c.rates_version,
-                },
-            )
+            yield uso
 
             if resposta.stop_reason == "refusal":
                 # O modelo recusou por segurança. Não insista, e não prometa
@@ -317,6 +275,34 @@ class Agente:
                     "confirmacao" if conv.state is State.CONFIRMING else "mudo",
                 )
                 blocos = [*blocos, {"type": "text", "text": texto}]
+            elif texto and not chamadas:
+                # A instrução explícita não basta sozinha: conferir é barato
+                # (contar palavras, sem chamada paga) e só a resposta errada
+                # paga uma reescrita. O texto errado nunca entra no histórico.
+                detectado = detector_idioma.detectar(texto)
+                if detectado is not None and detectado != alvo:
+                    eventos, refeitos, refeito = await self._reescrever_no_idioma(
+                        conv, ctx, blocos, alvo
+                    )
+                    for evento in eventos:
+                        yield evento
+                    corrigido = bool(refeito) and detector_idioma.detectar(refeito) in (
+                        None,
+                        alvo,
+                    )
+                    if corrigido:
+                        blocos, texto = refeitos, refeito
+                    ctx.registrar(
+                        kind="language_check",
+                        tool=MODEL,
+                        input={"alvo": alvo, "detectado": detectado},
+                        output={"corrigido": corrigido},
+                        reason_code="reply_language_mismatch",
+                    )
+                    yield Evento(
+                        "language_check",
+                        {"alvo": alvo, "detectado": detectado, "corrigido": corrigido},
+                    )
 
             conv.historico.append({"role": "assistant", "content": blocos})
 
@@ -359,8 +345,7 @@ class Agente:
                             _erro(
                                 chamada.id,
                                 "one_write_at_a_time",
-                                "Uma alteração por vez. Diga que faz uma de cada "
-                                "vez e não prometa as outras.",
+                                i18n.texto("erro.uma_por_vez", ctx.idioma),
                             )
                         )
                         yield Evento(
@@ -379,6 +364,94 @@ class Agente:
 
         conv.escalar("turn_limit")
         yield Evento("escalated", {"motivo": "turn_limit"})
+
+    async def _chamar_modelo(
+        self, ctx: AgentContext, mensagens: list[dict], escolha: dict[str, str]
+    ) -> tuple[Any, Evento]:
+        """Uma chamada paga, com o custo no contexto, no audit e na tela.
+
+        Prompt e schema no idioma da SESSÃO: são dois prefixos estáveis, um por
+        idioma, cada um com o seu cache.
+        """
+        comecou = time.perf_counter()
+        resposta = await self._client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system_blocks(ctx.idioma),
+            messages=mensagens,
+            tools=schema_para_anthropic(ctx.idioma),
+            tool_choice=escolha,
+            output_config={"effort": EFFORT},
+            metadata={"user_id": f"tenant:{ctx.tenant_id}"},
+        )
+        self.saude.registrar_ok()
+
+        # O custo entra no log de decisão pelo mesmo motivo que a regra
+        # entra: sem ele, "teto de gasto" é uma afirmação que ninguém pode
+        # conferir. E `cache_hit` fica visível de propósito — é o número que
+        # denuncia invalidador silencioso, que foi como o bug do gate
+        # apareceu. Um prefixo que deveria cachear e nunca lê está mudando
+        # de bytes sem ninguém perceber.
+        latencia_ms = round((time.perf_counter() - comecou) * 1000)
+        c = calcular_custo(MODEL, resposta.usage)
+        ctx.custo_micros += c.micros
+        ctx.chamadas += 1
+        ctx.registrar(
+            kind="llm_call",
+            tool=MODEL,
+            input={"latencia_ms": latencia_ms, "tool_choice": escolha["type"]},
+            output=c.audit_payload(),
+            reason_code=None,
+        )
+        uso = Evento(
+            "usage",
+            {
+                "modelo": MODEL,
+                "latencia_ms": latencia_ms,
+                "usd_turno": round(c.usd, 6),
+                "usd_conversa": round(ctx.custo_micros / 1_000_000, 6),
+                "input_tokens": c.input_tokens,
+                "output_tokens": c.output_tokens,
+                "cache_read_tokens": c.cache_read_tokens,
+                "cache_hit": c.cache_hit,
+                "rates_version": c.rates_version,
+            },
+        )
+        return resposta, uso
+
+    async def _reescrever_no_idioma(
+        self, conv: Conversation, ctx: AgentContext, blocos: list, alvo: str
+    ) -> tuple[list[Evento], list, str]:
+        """Pede ao modelo a MESMA resposta no idioma do turno. Uma chamada só.
+
+        O rascunho errado vai junto do pedido, para o conteúdo não mudar (a
+        proposta que o gate reteve é a mesma), mas não entra no histórico: o
+        que fica é a versão reescrita. `tool_choice: none` porque é reescrita,
+        não um passo novo. Se o provedor falhar aqui, fica o rascunho: melhor a
+        resposta no idioma errado do que turno nenhum.
+        """
+        pedido = [
+            *conv.historico,
+            {"role": "assistant", "content": blocos},
+            {
+                "role": "user",
+                "content": i18n.texto(
+                    "idioma.reescrever",
+                    ctx.idioma,
+                    idioma=i18n.nome_do_idioma(alvo, ctx.idioma),
+                ),
+            },
+        ]
+        try:
+            resposta, uso = await self._chamar_modelo(ctx, pedido, {"type": "none"})
+        except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
+            falha = classificar(exc)
+            self.saude.registrar_falha(falha.codigo)
+            self._registrar_falha(falha, ctx)
+            return [], blocos, ""
+        refeitos = [b for b in resposta.content if b.type == "text" and b.text.strip()]
+        refeito = "".join(b.text for b in refeitos).strip()
+        return [uso], refeitos, refeito
 
     @staticmethod
     def _registrar_falha(falha: FalhaDoProvedor, ctx: AgentContext) -> None:
@@ -437,7 +510,11 @@ class Agente:
         spec = REGISTRY.get(chamada.name)
         if spec is None:
             resultados.append(
-                _erro(chamada.id, "tool_desconhecida", "Não consigo fazer isso.")
+                _erro(
+                    chamada.id,
+                    "tool_desconhecida",
+                    i18n.texto("erro.tool_desconhecida", ctx.idioma),
+                )
             )
             return
 
@@ -448,7 +525,7 @@ class Agente:
                 _erro(
                     chamada.id,
                     "input_invalido",
-                    "Não entendi os detalhes. Pode repetir?",
+                    i18n.texto("erro.input_invalido", ctx.idioma),
                 )
             )
             return
@@ -494,14 +571,18 @@ class Agente:
                 )
                 yield Evento(
                     "state",
-                    {"estado": conv.state.value, "motivo": "aguardando confirmação"},
+                    {
+                        "estado": conv.state.value,
+                        "motivo": i18n.texto(
+                            "estado.aguardando_confirmacao", ctx.idioma
+                        ),
+                    },
                 )
                 resultados.append(
                     _erro(
                         chamada.id,
                         "confirmation_required",
-                        "Antes de executar: confirme com a pessoa o que vai ser feito e aguarde a resposta dela. "
-                        "Não diga que o sistema vai confirmar outras alterações.",
+                        i18n.texto("gate.confirmar", ctx.idioma),
                     )
                 )
                 return
@@ -540,7 +621,7 @@ class Agente:
                     _erro(
                         chamada.id,
                         decisao_quota.reason_code,
-                        "Esta conversa atingiu o limite de alterações da demonstração e foi encerrada.",
+                        i18n.texto("erro.teto_de_escritas", ctx.idioma),
                     )
                 )
                 return
@@ -597,8 +678,8 @@ def _eventos_de_politica(ctx: AgentContext, antes: int) -> list[Evento]:
     ]
 
 
-def _com_contexto(texto: str, ctx: AgentContext) -> str:
-    """Prende o relógio, o cadastro e o idioma ao turno — depois do cacheado.
+def _com_contexto(mensagem: str, ctx: AgentContext, alvo: str) -> str:
+    """Prende o relógio, os profissionais e o idioma ao turno — depois do cacheado.
 
     "Amanhã" só significa alguma coisa se o modelo souber que dia é hoje. A
     tentação é escrever isso no system prompt, e é o erro clássico: o prompt
@@ -609,27 +690,24 @@ def _com_contexto(texto: str, ctx: AgentContext) -> str:
     Entra como bloco marcado justamente porque o prompt manda tratar conteúdo
     de dado como dado: é contexto operacional, não uma instrução nova.
 
-    A linha do idioma está AQUI, e não só no system prompt, porque a regra lá
-    não segurou: o prompt inteiro é em português, as tools são em português e
-    os resultados voltam com chaves em português. Contra todo esse sinal, uma
-    frase no começo do prefixo perde — testado, o agente respondia em português
-    a uma pergunta em inglês. Repetida a cada turno, colada na mensagem da
-    pessoa, ela é a instrução mais recente que o modelo lê.
+    O bloco sai no idioma da SESSÃO, e a linha do idioma da resposta diz o
+    idioma decidido pelo código para este turno (`alvo`). Antes ela dizia "o
+    MESMO da mensagem abaixo", e o modelo tinha de adivinhar: num "ok" ou num
+    "yes" curto, o português do bloco, do prompt e das ferramentas vencia.
+
+    O cadastro de pacientes NÃO entra aqui. Com a lista no turno, o agente
+    dizia a quem pedia "Maria Teste" que ela não existia, "mas temos Ana, João
+    e Marta". O id de `marcar_consulta` sai de `buscar_paciente`.
     """
     local = ctx.at.astimezone(BAHIA)
-    return (
-        "<contexto_operacional>\n"
-        f"agora: {local.strftime('%A, %d/%m/%Y %H:%M')} ({local.tzname()})\n"
-        "profissionais: prof_bruno (Dr. Bruno Salles) · prof_helena (Dra. Helena Costa)\n"
-        # O cadastro de pacientes NÃO entra aqui. Com a lista no turno, o agente
-        # dizia a quem pedia "Maria Teste" que ela não existia, "mas temos Ana,
-        # João e Marta". O id de `marcar_consulta` sai de `buscar_paciente`.
-        "idioma da resposta: o MESMO da mensagem abaixo, sempre. Se ela vier em\n"
-        "  inglês, responda em inglês; em espanhol, em espanhol; e assim por\n"
-        "  diante. Não é o idioma deste bloco nem o das ferramentas.\n"
-        "</contexto_operacional>\n"
-        f"{texto}"
+    agora = local.strftime(i18n.texto("contexto.formato_agora", ctx.idioma))
+    bloco = i18n.texto(
+        "contexto.bloco",
+        ctx.idioma,
+        agora=f"{agora} ({local.tzname()})",
+        idioma=i18n.nome_do_idioma(alvo, ctx.idioma),
     )
+    return f"{bloco}{mensagem}"
 
 
 def _erro(tool_use_id: str, code: str, mensagem: str, hint: str | None = None) -> dict:

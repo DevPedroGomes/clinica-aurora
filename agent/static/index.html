@@ -545,6 +545,10 @@ const T = {
       cacheLido: (n) => `cache lido ${n}`, semCache: "sem leitura de cache", tarifas: "tarifas",
       encerrada: "encerrada", simulado: "encaminhamento simulado",
       provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
+      idioma: "idioma",
+      idiomaTexto: (det, alvo, ok) => ok
+        ? `resposta em <b>${det}</b> reescrita em <b>${alvo}</b>`
+        : `resposta em <b>${det}</b>, esperado <b>${alvo}</b>`,
     },
     provas: (d) => [
       [`<b>${d.testes}</b> testes`, "Passaram no CI antes de a imagem ser construída"],
@@ -651,6 +655,10 @@ const T = {
       cacheLido: (n) => `cache read ${n}`, semCache: "no cache read", tarifas: "rates",
       encerrada: "closed", simulado: "simulated handoff",
       provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
+      idioma: "language",
+      idiomaTexto: (det, alvo, ok) => ok
+        ? `reply in <b>${det}</b> rewritten in <b>${alvo}</b>`
+        : `reply in <b>${det}</b>, expected <b>${alvo}</b>`,
     },
     provas: (d) => [
       [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
@@ -989,6 +997,11 @@ function renderizar(tipo, d) {
       break;
     case "tool_error":
       evento(L.falhou, `<b>${esc(d.tool)}</b>: ${esc(d.code)}`, "erro");
+      break;
+    case "language_check":
+      // A checagem barata do idioma da resposta. Só aparece quando a resposta
+      // saiu no idioma errado: aí o turno pediu uma reescrita ao modelo.
+      evento(L.idioma, L.idiomaTexto(esc(d.detectado), esc(d.alvo), d.corrigido), d.corrigido ? "medida" : "erro");
       break;
     case "provider_error":
       // Falha do provedor não encerra a conversa: o turno foi desfeito no

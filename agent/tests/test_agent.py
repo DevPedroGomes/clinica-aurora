@@ -1006,7 +1006,7 @@ async def test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado(
     """
     llm = FakeLLM(
         [tool_use("remarcar_consulta", REMARCAR_16H)],  # dispara o gate
-        [texto("Move Ana to 4pm. Shall I go ahead?")],  # turno preso pelo gate
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],  # preso pelo gate
     )
 
     await coletar(Agente(llm), Conversation(), "remarca a da Ana pras 16h", ctx)

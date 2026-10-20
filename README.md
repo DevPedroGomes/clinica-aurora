@@ -49,6 +49,9 @@ make setup     # venv + dependências
 make test      # suíte
 make cov       # cobertura, com policy/ travada em 100%
 make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
+
+# Avaliação paga do idioma (fora da suíte padrão): conversas reais com o modelo
+cd agent && ANTHROPIC_API_KEY=... ../.venv/bin/python scripts/avaliar_idioma.py --idioma en --conversas 10
 ```
 
 ## Regras da casa
@@ -59,6 +62,14 @@ make erp       # sobe só o ERP em 127.0.0.1:8080 (docs em /docs)
   O gate aparece no log de decisão como `gate · held`: a chamada barrada é visível, e não se confunde
   com a que executou depois. Antes do gate roda a **prévia** (`executar=False`): leituras e política,
   sem gravar. Se a regra recusa, a recusa vem já, sem pedir "sim"; na execução a política roda de novo.
+- O idioma da sessão (`?lang`) governa tudo que o código escreve: o prompt do sistema (um por idioma,
+  cada um com o seu cache), o schema das tools, o bloco de contexto de cada turno, a ordem do gate, os
+  erros das tools e as dicas da política, todos do catálogo `agent/src/i18n.py`. O motor de política
+  devolve a CHAVE da dica, não o texto. O idioma da resposta é decidido pelo código a cada turno (a
+  mensagem quando ela é clara, senão o último que a pessoa usou, senão o da sessão) e dito ao modelo.
+  A resposta é conferida por um detector barato (`detector_idioma.py`, sem chamada paga); no idioma
+  errado, o turno pede UMA reescrita e o rascunho errado não entra no histórico. A linha `language`
+  aparece no log de decisão. `scripts/avaliar_idioma.py` mede isso com o modelo de verdade.
 - `rules.yaml` é versionado e a versão vai em cada linha do audit log — que sai em JSON por linha no
   logger `aurora.audit`, no stdout do container. A lista em memória alimenta a tela; o log é o que
   sobrevive à conversa e permite provar, depois, sob qual versão da regra a decisão foi tomada.

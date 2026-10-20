@@ -46,6 +46,10 @@ class FakeLLM:
         self.messages = SimpleNamespace(create=self._create)
 
     async def _create(self, **kwargs):
+        # Cópia da lista: o loop passa o histórico vivo, que cresce depois da
+        # chamada. Sem a cópia, `chamadas[i]["messages"]` mostrava o histórico
+        # do FIM do turno, e não o que o modelo de fato recebeu na chamada i.
+        kwargs = {**kwargs, "messages": list(kwargs.get("messages", []))}
         self.chamadas.append(kwargs)
         if not self._respostas:
             return SimpleNamespace(
