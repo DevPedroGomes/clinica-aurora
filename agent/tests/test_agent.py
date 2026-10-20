@@ -278,6 +278,104 @@ async def test_horario_equivalente_em_outro_formato_vale_a_mesma_confirmacao(
     assert len(gates) == 1
 
 
+# -- a regra decide antes da confirmação -------------------------------------
+#
+# A primeira chamada de escrita faz as leituras e a política SEM gravar. Se a
+# regra recusa, a recusa vem já, sem "confirma?" antes; se permite, aí sim o
+# gate pede o "sim". Antes o gate rodava primeiro, e "domingo às 10h" pedia
+# confirmação para só recusar na mensagem seguinte.
+
+
+async def test_remarcar_fora_do_expediente_recusa_sem_pedir_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-16T10:00:00-03:00"},
+            )
+        ],
+        [texto("A clínica não atende no domingo. Pode ser na segunda?")],
+    )
+    eventos = await coletar(
+        Agente(llm), Conversation(), "passa a da Ana pra domingo às 10h", ctx
+    )
+
+    assert not [e for e in eventos if e.tipo == "confirmation_required"]
+    assert [e.dado["reason_code"] for e in eventos if e.tipo == "policy"] == [
+        "outside_business_hours"
+    ]
+    assert ctx.confirmacoes == set()
+    assert erp.consultas["cons_1"].inicio.hour == 9
+
+
+async def test_remarcar_para_horario_ocupado_recusa_antes_de_pedir_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    # cons_2 ocupa o Dr. Bruno em 12/08 às 9h.
+    llm = FakeLLM(
+        [
+            tool_use(
+                "remarcar_consulta",
+                {"consulta_id": "cons_1", "novo_inicio": "2026-08-12T09:00:00-03:00"},
+            )
+        ],
+        [texto("Esse horário está ocupado. Pode ser às 10h?")],
+    )
+    eventos = await coletar(
+        Agente(llm), Conversation(), "passa a da Ana pra quarta às 9h", ctx
+    )
+
+    assert not [e for e in eventos if e.tipo == "confirmation_required"]
+    assert [e.dado["reason_code"] for e in eventos if e.tipo == "policy"] == [
+        "slot_conflict"
+    ]
+    assert ctx.confirmacoes == set()
+
+
+async def test_cancelar_em_cima_da_hora_pede_motivo_antes_da_confirmacao(
+    ctx: AgentContext, erp: ErpFake
+):
+    cid = "cons_7"
+    erp.consultas[cid] = ConsultaView(
+        id=cid,
+        paciente_nome="Marta Lins",
+        profissional_id="prof_helena",
+        profissional_nome="Dra. Helena Costa",
+        inicio=datetime(2026, 8, 10, 11, 0, tzinfo=BAHIA),  # daqui a 2h
+        fim=datetime(2026, 8, 10, 11, 30, tzinfo=BAHIA),
+        status="agendada",
+    )
+    com_motivo = {"consulta_id": cid, "motivo": "paciente doente"}
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("cancelar_consulta", {"consulta_id": cid})],
+        [texto("Para cancelar em cima da hora preciso de um motivo. Qual é?")],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_2")],
+        [texto("Cancelo a consulta da Marta das 11h. Posso seguir?")],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_3")],
+        [texto("Cancelada.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(agente, conv, "cancela a da Marta", ctx)
+    eventos_2 = await coletar(agente, conv, "paciente doente", ctx)
+    eventos_3 = await coletar(agente, conv, "sim", ctx)
+
+    assert [e.dado["reason_code"] for e in eventos_1 if e.tipo == "policy"] == [
+        "cancel_window_requires_reason"
+    ]
+    gates = [
+        e
+        for e in eventos_1 + eventos_2 + eventos_3
+        if e.tipo == "confirmation_required"
+    ]
+    assert len(gates) == 1
+    assert [e.tipo for e in eventos_1].count("confirmation_required") == 0
+    assert erp.consultas[cid].status == "cancelada"
+
+
 # -- turno mudo ---------------------------------------------------------------
 #
 # Regressão de um bug encontrado usando a demo em produção. Quando o gate tira

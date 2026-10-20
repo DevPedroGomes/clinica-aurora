@@ -114,8 +114,9 @@ servidor = FastMCP(
         "como recusa, com o código da regra. Chame `ler_politica` antes de "
         "prometer qualquer coisa a alguém, e `ler_log_de_decisao` para mostrar o "
         "que foi decidido e por quê. Toda escrita precisa de duas chamadas: a "
-        "primeira devolve a proposta e um token de confirmação sem gravar nada, "
-        "e você deve mostrá-la à pessoa antes de chamar a segunda com o token."
+        "primeira roda a política sem gravar nada e devolve a recusa da regra ou "
+        "a proposta com um token de confirmação; mostre a proposta à pessoa "
+        "antes de chamar a segunda com o token."
     ),
 )
 
@@ -200,17 +201,42 @@ async def _executar(
         )
 
     if spec.scope == "write":
+        if not confirmacao:
+            # A prévia roda a política ANTES de emitir o token: uma escrita que
+            # a regra barra não tem o que confirmar, e o cliente recebe a recusa
+            # com o código da regra já na primeira chamada.
+            antes = len(sessao.ctx.audit)
+            previa = await HANDLERS[nome](sessao.ctx, dados, executar=False)
+            if isinstance(previa, ToolError):
+                return _erro(
+                    previa.code,
+                    previa.user_message,
+                    decisoes=_decisoes(sessao, antes),
+                )
         recusa = _checar_escrita(nome, dados, sessao, confirmacao)
         if recusa is not None:
             return recusa
 
     antes = len(sessao.ctx.audit)
     saida = await HANDLERS[nome](sessao.ctx, dados)
+    decisoes = _decisoes(sessao, antes)
 
-    # As decisões de política tomadas DENTRO do handler viram parte da resposta.
-    # Sem isto o cliente recebe "não deu" e não sabe qual regra decidiu — que é
-    # justamente o que esta demo existe para mostrar.
-    decisoes = [
+    if isinstance(saida, ToolError):
+        return _erro(saida.code, saida.user_message, decisoes=decisoes)
+
+    # `escritas_realizadas` NÃO é incrementado aqui: quem incrementa é o próprio
+    # handler em `agenda.py`, e contar de novo cortaria o teto pela metade sem
+    # que nenhum teste do agente percebesse.
+    return {"ok": True, "resultado": saida, "decisoes": decisoes}
+
+
+def _decisoes(sessao: Sessao, antes: int) -> list[dict[str, Any]]:
+    """As decisões de política gravadas desde `antes`, no formato da resposta.
+
+    Sem isto o cliente recebe "não deu" e não sabe qual regra decidiu, que é
+    justamente o que esta demo existe para mostrar.
+    """
+    return [
         {
             "regra": e.tool,
             "permitido": e.output.get("allowed"),
@@ -220,14 +246,6 @@ async def _executar(
         for e in sessao.ctx.audit[antes:]
         if e.kind == "policy_decision"
     ]
-
-    if isinstance(saida, ToolError):
-        return _erro(saida.code, saida.user_message, decisoes=decisoes)
-
-    # `escritas_realizadas` NÃO é incrementado aqui: quem incrementa é o próprio
-    # handler em `agenda.py`, e contar de novo cortaria o teto pela metade sem
-    # que nenhum teste do agente percebesse.
-    return {"ok": True, "resultado": saida, "decisoes": decisoes}
 
 
 def _checar_escrita(
@@ -417,8 +435,9 @@ async def ler_politica(ctx: Context) -> dict[str, Any]:
                 "freio de segurança contra agente em laço."
             ),
             "confirmacao": (
-                "Toda escrita exige duas chamadas. A primeira devolve a proposta "
-                "e um token, sem gravar nada."
+                "Toda escrita exige duas chamadas. A primeira roda a política sem "
+                "gravar nada: devolve a recusa com o código da regra, ou a "
+                "proposta e um token."
             ),
         },
         "arquivo_de_origem": "agent/src/policy/rules.yaml",

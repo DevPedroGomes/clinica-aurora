@@ -153,16 +153,32 @@ async def test_token_certo_executa_e_nao_serve_duas_vezes(ctx: CtxFalso):
 
 
 async def test_politica_recusa_e_devolve_o_codigo_da_regra(ctx: CtxFalso):
-    """O ponto da demo: quem recusa é este processo, não o modelo do outro lado."""
+    """O ponto da demo: quem recusa é este processo, não o modelo do outro lado.
+
+    A recusa vem já na primeira chamada: a prévia roda a política antes de
+    emitir o token, e não há o que confirmar numa escrita que a regra barra.
+    """
     campos = {"consulta_id": "cons_2"}
-    p = await chamar("cancelar_consulta", ctx, **campos)
-    r = await chamar("cancelar_consulta", ctx, **campos, confirmacao=p["confirmacao"])
+    r = await chamar("cancelar_consulta", ctx, **campos)
 
     assert r["ok"] is False
     assert r["erro"] == "cancel_window_requires_reason"
     regras = {(d["regra"], d["codigo"]) for d in r["decisoes"]}
     assert ("cancelar_consulta", "cancel_window_requires_reason") in regras
     assert all(d["versao_da_politica"] for d in r["decisoes"])
+
+
+async def test_proposta_recusada_pela_politica_nao_emite_token(ctx: CtxFalso):
+    r = await chamar(
+        "remarcar_consulta",
+        ctx,
+        consulta_id="cons_1",
+        novo_inicio="2026-08-16T10:00:00-03:00",  # domingo
+    )
+    assert r["ok"] is False
+    assert r["erro"] == "outside_business_hours"
+    assert "confirmacao" not in r
+    assert server._sessao(ctx).confirmacoes == {}  # type: ignore[arg-type]
 
 
 async def test_a_mesma_escrita_passa_quando_a_regra_e_satisfeita(ctx: CtxFalso):

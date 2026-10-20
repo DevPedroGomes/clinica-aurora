@@ -645,3 +645,72 @@ def test_assinatura_de_horarios_diferentes_continua_diferente():
         },
     )
     assert a != b
+
+
+# -- prévia: a política sem a escrita -----------------------------------------
+
+
+async def test_previa_permitida_nao_deixa_linha_de_politica(
+    ctx: AgentContext, erp: ErpFake
+):
+    """A linha que vale é a da execução: a prévia permitida não duplica o log."""
+    out = await remarcar_consulta(
+        ctx,
+        RemarcarConsultaInput(
+            consulta_id="cons_1", novo_inicio="2026-08-11T16:00:00-03:00"
+        ),
+        executar=False,
+    )
+    assert out is None
+    assert [a for a in ctx.audit if a.kind == "policy_decision"] == []
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert not [c for c in erp.chamadas if c[0] == "remarcar"]
+
+
+async def test_previa_recusada_registra_a_decisao_e_nao_grava(
+    ctx: AgentContext, erp: ErpFake
+):
+    out = await abrir_vaga(
+        ctx,
+        AbrirVagaInput(
+            profissional_id="prof_bruno",
+            inicio="2026-08-16T10:00:00-03:00",
+            duracao_min=30,
+        ),
+        executar=False,
+    )
+    assert isinstance(out, ToolError)
+    assert out.code == "outside_business_hours"
+    assert [a.reason_code for a in ctx.audit] == ["outside_business_hours"]
+    assert not [c for c in erp.chamadas if c[0] == "abrir_vaga"]
+
+
+async def test_previa_de_cada_escrita_nao_toca_o_erp(ctx: AgentContext, erp: ErpFake):
+    previas = [
+        await cancelar_consulta(
+            ctx, CancelarConsultaInput(consulta_id="cons_1"), executar=False
+        ),
+        await abrir_vaga(
+            ctx,
+            AbrirVagaInput(
+                profissional_id="prof_helena",
+                inicio="2026-08-12T14:00:00-03:00",
+                duracao_min=30,
+            ),
+            executar=False,
+        ),
+        await marcar_consulta(
+            ctx,
+            MarcarConsultaInput(
+                paciente_id="pac_marta",
+                profissional_id="prof_helena",
+                inicio="2026-08-12T15:00:00-03:00",
+                duracao_min=30,
+            ),
+            executar=False,
+        ),
+    ]
+    assert previas == [None, None, None]
+    escritas = {"remarcar", "cancelar", "abrir_vaga"}
+    assert not [c for c in erp.chamadas if c[0] in escritas]
+    assert ctx.escritas_realizadas == 0

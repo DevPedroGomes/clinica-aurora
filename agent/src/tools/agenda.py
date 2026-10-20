@@ -7,6 +7,12 @@ sempre validado contra o tenant da sessão DENTRO da tool, não no prompt.
 E nenhuma inventa resultado (regra 7 + escopo §4): se o ERP não gravou, a tool
 devolve ToolError e o agente escala. Não existe caminho que produza um código de
 confirmação para algo que não aconteceu.
+
+As quatro de escrita têm dois modos. `executar=False` é a PRÉVIA: faz as leituras
+do ERP e roda a política, sem gravar. Recusa volta como ToolError, com a decisão
+no audit; permissão volta como None, sem linha nenhuma, porque a linha que vale
+é a da execução e o log não pode ganhar duplicata. É a prévia que deixa a regra
+decidir ANTES de o gate pedir o "sim".
 """
 
 from __future__ import annotations
@@ -139,8 +145,8 @@ class RemarcarConsultaInput(BaseModel):
     confirm_fields=("consulta_id", "novo_inicio"),
 )
 async def remarcar_consulta(
-    ctx: AgentContext, data: RemarcarConsultaInput
-) -> dict[str, Any] | ToolError:
+    ctx: AgentContext, data: RemarcarConsultaInput, *, executar: bool = True
+) -> dict[str, Any] | ToolError | None:
     novo_inicio = ler_instante(data.novo_inicio)
     if novo_inicio is None:
         return ToolError(
@@ -181,19 +187,22 @@ async def remarcar_consulta(
         agenda=_janelas(agenda),
         at=ctx.at,
     )
-    ctx.registrar(
-        kind="policy_decision",
-        tool="remarcar_consulta",
-        input=decisao.audit_payload,
-        output={"allowed": decisao.allowed},
-        reason_code=decisao.reason_code,
-    )
+    if executar or not decisao.allowed:
+        ctx.registrar(
+            kind="policy_decision",
+            tool="remarcar_consulta",
+            input=decisao.audit_payload,
+            output={"allowed": decisao.allowed},
+            reason_code=decisao.reason_code,
+        )
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
             user_message="Esse horário não está disponível.",
             retry_hint=decisao.explanation_hint,
         )
+    if not executar:
+        return None
 
     # Capturado ANTES da escrita: depois dela, `consulta` pode já refletir o
     # estado novo, e a mensagem ao usuário diria "movi das 16h para as 16h".
@@ -251,8 +260,8 @@ class CancelarConsultaInput(BaseModel):
     confirm_fields=("consulta_id",),
 )
 async def cancelar_consulta(
-    ctx: AgentContext, data: CancelarConsultaInput
-) -> dict[str, Any] | ToolError:
+    ctx: AgentContext, data: CancelarConsultaInput, *, executar: bool = True
+) -> dict[str, Any] | ToolError | None:
     try:
         consulta = await ctx.erp.obter(data.consulta_id, at=ctx.at)
     except ErpIndisponivel:
@@ -265,19 +274,22 @@ async def cancelar_consulta(
     decisao = ctx.policy.pode_cancelar(
         inicio=consulta.inicio, motivo=data.motivo or "", at=ctx.at
     )
-    ctx.registrar(
-        kind="policy_decision",
-        tool="cancelar_consulta",
-        input=decisao.audit_payload,
-        output={"allowed": decisao.allowed},
-        reason_code=decisao.reason_code,
-    )
+    if executar or not decisao.allowed:
+        ctx.registrar(
+            kind="policy_decision",
+            tool="cancelar_consulta",
+            input=decisao.audit_payload,
+            output={"allowed": decisao.allowed},
+            reason_code=decisao.reason_code,
+        )
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
             user_message="Para cancelar essa consulta eu preciso registrar um motivo.",
             retry_hint=decisao.explanation_hint,
         )
+    if not executar:
+        return None
 
     try:
         cancelada = await ctx.erp.cancelar(
@@ -330,8 +342,8 @@ class AbrirVagaInput(BaseModel):
     confirm_fields=("profissional_id", "inicio", "duracao_min"),
 )
 async def abrir_vaga(
-    ctx: AgentContext, data: AbrirVagaInput
-) -> dict[str, Any] | ToolError:
+    ctx: AgentContext, data: AbrirVagaInput, *, executar: bool = True
+) -> dict[str, Any] | ToolError | None:
     inicio = ler_instante(data.inicio)
     if inicio is None:
         return ToolError(
@@ -342,19 +354,22 @@ async def abrir_vaga(
     decisao = ctx.policy.pode_abrir_vaga(
         inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
     )
-    ctx.registrar(
-        kind="policy_decision",
-        tool="abrir_vaga",
-        input=decisao.audit_payload,
-        output={"allowed": decisao.allowed},
-        reason_code=decisao.reason_code,
-    )
+    if executar or not decisao.allowed:
+        ctx.registrar(
+            kind="policy_decision",
+            tool="abrir_vaga",
+            input=decisao.audit_payload,
+            output={"allowed": decisao.allowed},
+            reason_code=decisao.reason_code,
+        )
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
             user_message="Não posso abrir esse horário.",
             retry_hint=decisao.explanation_hint,
         )
+    if not executar:
+        return None
 
     try:
         vaga = await ctx.erp.abrir_vaga(
@@ -423,8 +438,8 @@ class MarcarConsultaInput(BaseModel):
     confirm_fields=("paciente_id", "profissional_id", "inicio", "duracao_min"),
 )
 async def marcar_consulta(
-    ctx: AgentContext, data: MarcarConsultaInput
-) -> dict[str, Any] | ToolError:
+    ctx: AgentContext, data: MarcarConsultaInput, *, executar: bool = True
+) -> dict[str, Any] | ToolError | None:
     """A operação que faltava para a persona fechar.
 
     A recepção abria vaga e remarcava, mas não conseguia marcar consulta para
@@ -445,19 +460,22 @@ async def marcar_consulta(
     decisao = ctx.policy.pode_abrir_vaga(
         inicio=inicio, duracao_min=data.duracao_min, at=ctx.at
     )
-    ctx.registrar(
-        kind="policy_decision",
-        tool="marcar_consulta",
-        input=decisao.audit_payload,
-        output={"allowed": decisao.allowed},
-        reason_code=decisao.reason_code,
-    )
+    if executar or not decisao.allowed:
+        ctx.registrar(
+            kind="policy_decision",
+            tool="marcar_consulta",
+            input=decisao.audit_payload,
+            output={"allowed": decisao.allowed},
+            reason_code=decisao.reason_code,
+        )
     if not decisao.allowed:
         return ToolError(
             code=decisao.reason_code,
             user_message="Não posso marcar nesse horário.",
             retry_hint=decisao.explanation_hint,
         )
+    if not executar:
+        return None
 
     try:
         consulta = await ctx.erp.abrir_vaga(

@@ -368,6 +368,33 @@ class Agente:
             reason_code=falha.codigo,
         )
 
+    @staticmethod
+    async def _tratar_erro_de_tool(
+        saida: ToolError,
+        chamada: Any,
+        spec: Any,
+        conv: Conversation,
+        resultados: list[dict],
+    ) -> AsyncIterator[Evento]:
+        """Recusa ou falha de tool, venha da prévia ou da execução.
+
+        Falha do ERP conta para a escalação por falha repetida; o resto é
+        negativa de regra, que escala na segunda seguida.
+        """
+        resultados.append(
+            _erro(chamada.id, saida.code, saida.user_message, saida.retry_hint)
+        )
+        gatilho = (
+            conv.registrar_falha_de_tool()
+            if saida.code in {"erp_unavailable", "erp_rejected"}
+            else conv.registrar_negativa()
+        )
+        yield Evento("tool_error", {"tool": spec.name, "code": saida.code})
+        if gatilho:
+            conv.escalar(gatilho)
+        elif conv.state is State.EXECUTING:
+            conv.avancar(State.COLLECTING)
+
     async def _executar(
         self,
         chamada: Any,
@@ -405,6 +432,22 @@ class Agente:
             # Gate de confirmação (G-17). O modelo pode ter sido convencido a
             # pular a etapa; o runtime não.
             if spec.requires_confirmation and sig not in ctx.confirmacoes:
+                # Antes do gate, a PRÉVIA: leituras e política, sem gravar. Uma
+                # escrita que a regra barra não tem o que confirmar, e pedir o
+                # "sim" antes fazia "domingo às 10h" recusar só na mensagem
+                # seguinte. Na execução a política roda de novo, porque a agenda
+                # pode ter mudado entre a proposta e o "sim".
+                antes = len(ctx.audit)
+                previa = await HANDLERS[spec.name](ctx, entrada, executar=False)
+                for evento in _eventos_de_politica(ctx, antes):
+                    yield evento
+                if isinstance(previa, ToolError):
+                    async for evento in self._tratar_erro_de_tool(
+                        previa, chamada, spec, conv, resultados
+                    ):
+                        yield evento
+                    return
+
                 ctx.propostas_do_turno.add(sig)
                 conv.avancar(State.CONFIRMING)
                 # O gate PRECISA aparecer no log de decisão. Sem esta linha a
@@ -474,32 +517,14 @@ class Agente:
 
         antes = len(ctx.audit)
         saida = await HANDLERS[spec.name](ctx, entrada)
-        for entrada_audit in ctx.audit[antes:]:
-            if entrada_audit.kind == "policy_decision":
-                yield Evento(
-                    "policy",
-                    {
-                        "regra": entrada_audit.tool,
-                        "allowed": entrada_audit.output.get("allowed"),
-                        "reason_code": entrada_audit.reason_code,
-                        "rules_version": entrada_audit.rules_version,
-                    },
-                )
+        for evento in _eventos_de_politica(ctx, antes):
+            yield evento
 
         if isinstance(saida, ToolError):
-            resultados.append(
-                _erro(chamada.id, saida.code, saida.user_message, saida.retry_hint)
-            )
-            gatilho = (
-                conv.registrar_falha_de_tool()
-                if saida.code in {"erp_unavailable", "erp_rejected"}
-                else conv.registrar_negativa()
-            )
-            yield Evento("tool_error", {"tool": spec.name, "code": saida.code})
-            if gatilho:
-                conv.escalar(gatilho)
-            elif conv.state is State.EXECUTING:
-                conv.avancar(State.COLLECTING)
+            async for evento in self._tratar_erro_de_tool(
+                saida, chamada, spec, conv, resultados
+            ):
+                yield evento
             return
 
         conv.registrar_sucesso()
@@ -520,6 +545,23 @@ class Agente:
                 "content": json.dumps(saida, ensure_ascii=False),
             }
         )
+
+
+def _eventos_de_politica(ctx: AgentContext, antes: int) -> list[Evento]:
+    """As decisões de política gravadas no audit desde `antes`, como eventos."""
+    return [
+        Evento(
+            "policy",
+            {
+                "regra": entrada.tool,
+                "allowed": entrada.output.get("allowed"),
+                "reason_code": entrada.reason_code,
+                "rules_version": entrada.rules_version,
+            },
+        )
+        for entrada in ctx.audit[antes:]
+        if entrada.kind == "policy_decision"
+    ]
 
 
 def _com_contexto(texto: str, ctx: AgentContext) -> str:
