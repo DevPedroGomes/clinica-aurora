@@ -20,7 +20,13 @@ import pytest
 
 from src.adapters.erp import ConsultaView
 from src.adapters.fake import ErpFake
-from src.agent import FALLBACK_CONFIRMACAO, Agente, assinatura
+from src import i18n
+from src.agent import (
+    FALLBACK_CONFIRMACAO,
+    Agente,
+    _escolha_para_propor,
+    assinatura,
+)
 from src.falhas import classificar
 from src.flows.state_machine import (
     MAX_TURNS,
@@ -1130,3 +1136,267 @@ async def test_erro_de_leitura_do_erp_nao_escapa_da_tool(
         e.tipo == "tool_error" and e.dado["code"] == "erp_rejected" for e in eventos
     )
     assert erp.consultas["cons_1"].inicio.hour == 9
+
+
+# -- confirmação pedida em texto vira proposta --------------------------------
+#
+# Verificação pós-deploy de 20/10, conversa em português: o modelo perguntou em
+# texto "Você quer remarcar essa para as 16h?" sem chamar a ferramenta; no
+# "sim" ele chamou, o gate reteve e pediu o "sim" de novo (linha a). Na linha c
+# perguntou "É essa que você quer cancelar?" e a regra nunca chegou a decidir.
+# Em inglês o modelo chamou a ferramenta no primeiro turno. O conserto não
+# depende do prompt: quando a resposta pede confirmação de alteração sem
+# proposta retida, o loop pede a chamada da ferramenta antes de responder.
+
+PERGUNTA_ANA = (
+    "Ana tem uma consulta amanhã às 9h com o Dr. Bruno Salles. Você quer "
+    "remarcar essa para as 16h do mesmo dia?"
+)
+PROPOSTA_ANA = "Vou remarcar a consulta da Ana de amanhã 9h para as 16h. Confirma?"
+
+
+async def test_confirmacao_em_texto_vira_proposta_e_a_pessoa_confirma_uma_vez(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Linha a: uma confirmação só, e depois do "sim" a consulta muda."""
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("buscar_paciente", {"nome": "Ana"})],
+        [tool_use("listar_agenda", {"paciente_id": "pac_ana"}, id_="toolu_2")],
+        [texto(PERGUNTA_ANA)],  # o rascunho: "confirma?" em texto, sem ferramenta
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_3")],  # pedido
+        [texto(PROPOSTA_ANA)],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_4")],
+        [texto("Pronto, a consulta da Ana passou para as 16h.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(
+        agente, conv, "Remarque a consulta da Ana para as 16h", ctx
+    )
+    assert conv.state is State.CONFIRMING
+    eventos_2 = await coletar(agente, conv, "sim", ctx)
+
+    # A pergunta em texto nunca chegou à tela: o que a pessoa leu foi a proposta
+    # que o gate reteve, e ela confirmou uma vez.
+    assert [e.dado["texto"] for e in eventos_1 if e.tipo == "message"] == [PROPOSTA_ANA]
+    gates = [e for e in eventos_1 + eventos_2 if e.tipo == "confirmation_required"]
+    assert len(gates) == 1
+    assert erp.consultas["cons_1"].inicio.hour == 16
+    assert ctx.escritas_realizadas == 1
+    assert [e.dado for e in eventos_1 if e.tipo == "proposal_check"] == [
+        {"motivo": "confirmation_asked_in_text", "chamou": ["remarcar_consulta"]}
+    ]
+
+    # O pedido é forçado na amostragem, uma escrita só, com a nota no fim da
+    # última mensagem da pessoa; o rascunho não foi enviado nem ficou guardado.
+    pedido = llm.chamadas[3]
+    assert pedido["tool_choice"] == {"type": "any", "disable_parallel_tool_use": True}
+    assert pedido["messages"][-1]["content"][-1]["text"].startswith(
+        "<verificacao_de_proposta>"
+    )
+    enviado = json.dumps(pedido["messages"], default=str, ensure_ascii=False)
+    assert "Você quer remarcar essa" not in enviado
+    assert PERGUNTA_ANA not in textos_do_historico(conv)
+    assert [a.reason_code for a in ctx.audit if a.kind == "proposal_check"] == [
+        "confirmation_asked_in_text"
+    ]
+
+
+async def test_confirmacao_em_texto_de_cancelamento_deixa_a_regra_decidir(
+    ctx: AgentContext, erp: ErpFake
+):
+    """Linha c: em vez de "é essa?", a regra pede o motivo, e só então o "sim"."""
+    joao = erp.consultas["cons_2"]
+    joao.inicio = datetime(2026, 8, 10, 11, 0, tzinfo=BAHIA)  # daqui a 2h
+    joao.fim = datetime(2026, 8, 10, 11, 30, tzinfo=BAHIA)
+    com_motivo = {"consulta_id": "cons_2", "motivo": "paciente doente"}
+    pede_motivo = (
+        "Para cancelar em cima da hora eu preciso registrar um motivo. Qual é?"
+    )
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("buscar_paciente", {"nome": "João"})],
+        [tool_use("listar_agenda", {"paciente_id": "pac_joao"}, id_="toolu_2")],
+        [
+            texto(
+                "João Meireles tem uma consulta hoje às 11h com o Dr. Bruno Salles. "
+                "É essa que você quer cancelar?"
+            )
+        ],
+        [tool_use("cancelar_consulta", {"consulta_id": "cons_2"}, id_="toolu_3")],
+        [texto(pede_motivo)],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_4")],
+        [texto("Cancelo a do João de hoje às 11h, motivo paciente doente. Confirma?")],
+        [tool_use("cancelar_consulta", com_motivo, id_="toolu_5")],
+        [texto("Cancelada.")],
+    )
+    agente = Agente(llm)
+
+    eventos_1 = await coletar(agente, conv, "Cancele a consulta do João", ctx)
+    eventos_2 = await coletar(agente, conv, "paciente doente", ctx)
+    eventos_3 = await coletar(agente, conv, "sim", ctx)
+
+    assert [e.dado["texto"] for e in eventos_1 if e.tipo == "message"] == [pede_motivo]
+    assert [e.dado["reason_code"] for e in eventos_1 if e.tipo == "policy"] == [
+        "cancel_window_requires_reason"
+    ]
+    assert not [e for e in eventos_1 if e.tipo == "confirmation_required"]
+    assert conv.state is not State.ESCALATED
+    # "Qual é?" é pergunta aberta: nenhum segundo pedido de proposta no turno.
+    assert sum(e.tipo == "proposal_check" for e in eventos_1) == 1
+    gates = [
+        e
+        for e in eventos_1 + eventos_2 + eventos_3
+        if e.tipo == "confirmation_required"
+    ]
+    assert len(gates) == 1
+    assert erp.consultas["cons_2"].status == "cancelada"
+
+
+async def test_pedido_de_proposta_nunca_executa_escrita_ja_confirmavel(
+    ctx: AgentContext, erp: ErpFake
+):
+    """A pessoa viu a proposta e disse "espera"; o modelo pergunta em texto.
+
+    A escrita estava confirmável desde o turno anterior, mas a pergunta de
+    agora ainda não teve resposta: a chamada vinda do pedido só propõe.
+    """
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [texto("Tudo bem. Você quer remarcar a da Ana para as 16h mesmo?")],
+        [tool_use("remarcar_consulta", REMARCAR_16H, id_="toolu_2")],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    eventos = await coletar(agente, conv, "espera, deixa eu ver", ctx)
+
+    assert erp.consultas["cons_1"].inicio.hour == 9
+    assert ctx.escritas_realizadas == 0
+    assert any(e.tipo == "confirmation_required" for e in eventos)
+    assert conv.state is State.CONFIRMING
+
+
+async def test_pergunta_aberta_nao_pede_proposta(ctx: AgentContext):
+    llm = FakeLLM(
+        [texto("Para cancelar em cima da hora preciso de um motivo. Qual é?")]
+    )
+    eventos = await coletar(Agente(llm), Conversation(), "cancela a do João", ctx)
+
+    assert len(llm.chamadas) == 1
+    assert not any(e.tipo == "proposal_check" for e in eventos)
+
+
+async def test_depois_de_uma_recusa_no_turno_nao_pede_proposta(ctx: AgentContext):
+    """Uma segunda recusa seguida encerraria a conversa: o loop não arrisca."""
+    domingo = {"consulta_id": "cons_1", "novo_inicio": "2026-08-16T10:00:00-03:00"}
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", domingo)],
+        [texto("A clínica não abre no domingo. Quer que eu remarque para segunda?")],
+    )
+    eventos = await coletar(Agente(llm), conv, "passa a da Ana pra domingo", ctx)
+
+    assert len(llm.chamadas) == 2
+    assert not any(e.tipo == "proposal_check" for e in eventos)
+    assert conv.state is not State.ESCALATED
+
+
+async def test_sem_chamada_no_pedido_fica_a_pergunta_e_a_nota_sai(ctx: AgentContext):
+    """Modelo que recusa `any` responde em texto: fica o comportamento de antes."""
+    conv = Conversation()
+    llm = FakeLLM([texto(PERGUNTA_ANA)], [texto("Quer que eu remarque?")])
+    eventos = await coletar(Agente(llm), conv, "remarca a da Ana pras 16h", ctx)
+
+    assert [e.dado["texto"] for e in eventos if e.tipo == "message"] == [PERGUNTA_ANA]
+    assert [e.dado["chamou"] for e in eventos if e.tipo == "proposal_check"] == [[]]
+    historico = json.dumps(conv.historico, default=str, ensure_ascii=False)
+    assert "verificacao_de_proposta" not in historico
+
+
+async def test_falha_do_provedor_no_pedido_de_proposta_mantem_a_pergunta(
+    ctx: AgentContext,
+):
+    conv = Conversation()
+    llm = RoteiroLLM(
+        [texto(PERGUNTA_ANA)], erro_do_provedor(529, "overloaded_error", "Overloaded")
+    )
+    eventos = await coletar(Agente(llm), conv, "remarca a da Ana pras 16h", ctx)
+
+    assert [e.dado["texto"] for e in eventos if e.tipo == "message"] == [PERGUNTA_ANA]
+    assert not any(e.tipo == "provider_error" for e in eventos)
+    historico = json.dumps(conv.historico, default=str, ensure_ascii=False)
+    assert "verificacao_de_proposta" not in historico
+
+
+def test_modelo_que_recusa_tool_choice_forcado_recebe_auto():
+    assert _escolha_para_propor("claude-sonnet-5")["type"] == "any"
+    for modelo in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"):
+        assert _escolha_para_propor(modelo) == {
+            "type": "auto",
+            "disable_parallel_tool_use": True,
+        }
+
+
+def test_nota_do_pedido_de_proposta_segue_o_idioma_da_sessao():
+    assert i18n.texto("nota.proposta_em_texto", "en").startswith("<proposal_check>")
+
+
+# -- o estado diz se há proposta pendente -------------------------------------
+#
+# Linhas b a e1 da verificação de 20/10: depois da primeira proposta, a tela
+# ficou em "esperando a sua confirmação" através de uma recusa de regra e de
+# quatro respostas só em texto, sem proposta nenhuma pendente no código.
+
+DOMINGO_10H = {"consulta_id": "cons_1", "novo_inicio": "2026-08-16T10:00:00-03:00"}
+
+
+async def test_estado_sai_de_confirmando_quando_a_regra_recusa_o_pedido_seguinte(
+    ctx: AgentContext,
+):
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [tool_use("remarcar_consulta", DOMINGO_10H, id_="toolu_2")],
+        [texto("A clínica não abre no domingo. Prefere outro dia?")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    assert conv.state is State.CONFIRMING
+    eventos = await coletar(agente, conv, "passa pra domingo às 10h", ctx)
+
+    assert ctx.confirmacoes == set()
+    assert conv.state is State.COLLECTING
+    assert [e.dado["estado"] for e in eventos if e.tipo == "state"][-1] == "collecting"
+
+
+async def test_estado_sai_de_confirmando_quando_o_turno_termina_so_em_texto(
+    ctx: AgentContext,
+):
+    conv = Conversation()
+    llm = FakeLLM(
+        [tool_use("remarcar_consulta", REMARCAR_16H)],
+        [texto("Remarco a da Ana para as 16h. Posso seguir?")],
+        [texto("Rua das Flores, 100.")],
+    )
+    agente = Agente(llm)
+
+    await coletar(agente, conv, "remarca a da Ana pras 16h", ctx)
+    await coletar(agente, conv, "qual o endereço?", ctx)
+
+    assert ctx.confirmacoes == set()
+    assert conv.state is State.COLLECTING
+
+
+async def test_recusa_do_modelo_tambem_tira_o_estado_de_confirmando(ctx: AgentContext):
+    conv = Conversation(state=State.CONFIRMING)
+    eventos = await coletar(Agente(RecusaLLM()), conv, "coisa proibida", ctx)
+
+    assert conv.state is State.COLLECTING
+    assert [e.dado["estado"] for e in eventos if e.tipo == "state"][-1] == "collecting"

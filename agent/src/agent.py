@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from anthropic import AsyncAnthropic
 
 from . import detector_idioma, i18n
+from .confirmacao_em_texto import pede_confirmacao
 from .falhas import FalhaDoProvedor, classificar
 from .flows.state_machine import Conversation, State
 from .pricing import custo as calcular_custo
@@ -58,6 +59,17 @@ MAX_ITERACOES = 6
 # idioma errado. Uma: a reescrita com a instrução explícita resolve, e uma
 # segunda chamada paga por turno já é o teto que vale a pena gastar nisso.
 MAX_REESCRITAS_DE_IDIOMA = 1
+
+# Modelos que recusam `tool_choice` forçado (`any`/`tool`) com 400. Neles o
+# pedido da proposta vai com `auto` e a instrução, e o loop confere se a chamada
+# veio. O padrão (`claude-sonnet-5`) aceita `any`, e aí a chamada é garantida no
+# nível da amostragem, não pela boa vontade do modelo.
+MODELOS_SEM_TOOL_CHOICE_FORCADO = (
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+)
 
 # O que dizer quando o modelo devolve um turno inteiro sem texto nenhum. Calar
 # é a pior saída: a pessoa fala, some o "pensando…" e nada aparece — parece
@@ -176,6 +188,11 @@ class Agente:
             conv.transicionar(State.QUALIFYING)
         yield Evento("state", {"estado": conv.state.value})
 
+        # Uma vez por turno: se a resposta pedir confirmação em texto sem
+        # proposta retida no código, o loop pede ao modelo a chamada da
+        # ferramenta (ver `_pedir_a_proposta`). Duas vezes seria insistir.
+        pediu_a_proposta = False
+
         for _ in range(MAX_ITERACOES):
             # Quando o gate pede confirmação, o turno segue sem PODER chamar
             # ferramenta: a única coisa que falta é falar com a pessoa. Deixar
@@ -245,10 +262,10 @@ class Agente:
                 conv.historico.append(
                     {"role": "assistant", "content": [{"type": "text", "text": recusa}]}
                 )
-                # O turno terminou sem proposta nova: nada fica confirmável.
-                ctx.confirmacoes = set(ctx.propostas_do_turno)
-                ctx.propostas_do_turno.clear()
                 yield Evento("message", {"texto": recusa})
+                # O turno terminou sem proposta nova: nada fica confirmável.
+                for evento in _fechar_turno(conv, ctx):
+                    yield evento
                 gatilho = conv.registrar_fora_de_escopo()
                 if gatilho:
                     conv.escalar(gatilho)
@@ -265,6 +282,13 @@ class Agente:
             blocos = [b for b in resposta.content if b.type != "text" or b.text.strip()]
             texto = "".join(b.text for b in blocos if b.type == "text").strip()
             chamadas = [b for b in blocos if b.type == "tool_use"]
+            # Chamadas vindas do pedido de proposta só podem PROPOR (ver
+            # `_executar`): nunca executam uma escrita, mesmo que ela já esteja
+            # confirmável.
+            so_propor = False
+            # A frase de reserva é do código, no idioma da sessão: não passa
+            # pela checagem de idioma, que é para o que o MODELO escreveu.
+            frase_do_codigo = False
 
             if not texto and not chamadas:
                 # Turno sem nada visível e sem nada a executar: em vez de sumir,
@@ -275,7 +299,35 @@ class Agente:
                     "confirmacao" if conv.state is State.CONFIRMING else "mudo",
                 )
                 blocos = [*blocos, {"type": "text", "text": texto}]
+                frase_do_codigo = True
             elif texto and not chamadas:
+                # Confirmação pedida em TEXTO, sem proposta retida no código: a
+                # pergunta não registra nada, e o "sim" da pessoa só abriria o
+                # gate, que pediria o "sim" de novo. Em vez de mostrar a
+                # pergunta, o loop pede ao modelo a chamada da ferramenta: a
+                # regra decide já, e se ela permitir o gate retém e a pessoa
+                # confirma uma vez só. Depois de uma recusa de regra no mesmo
+                # turno não pede: uma segunda recusa seguida encerraria a
+                # conversa por `policy_denied_twice`.
+                if (
+                    not pediu_a_proposta
+                    and not ctx.propostas_do_turno
+                    and conv.negativas_seguidas == 0
+                    and pede_confirmacao(texto)
+                ):
+                    pediu_a_proposta = True
+                    eventos, forcados = await self._pedir_a_proposta(conv, ctx)
+                    for evento in eventos:
+                        yield evento
+                    if forcados:
+                        blocos = forcados
+                        texto = "".join(
+                            b.text for b in blocos if b.type == "text"
+                        ).strip()
+                        chamadas = [b for b in blocos if b.type == "tool_use"]
+                        so_propor = True
+
+            if texto and not chamadas and not frase_do_codigo:
                 # A instrução explícita não basta sozinha: conferir é barato
                 # (contar palavras, sem chamada paga) e só a resposta errada
                 # paga uma reescrita. O texto errado nunca entra no histórico.
@@ -321,12 +373,8 @@ class Agente:
                 # Só agora ela vira confirmação pendente, e só na próxima fala
                 # dela a escrita pode executar. É este passo que garante que
                 # existiu um humano entre a intenção e a gravação.
-                #
-                # Atribuição, não acúmulo: a confirmação vale só para a mensagem
-                # SEGUINTE. Acumulando, um "sim" cinco mensagens depois, ou depois
-                # de a pessoa mudar de ideia, ainda executava a proposta velha.
-                ctx.confirmacoes = set(ctx.propostas_do_turno)
-                ctx.propostas_do_turno.clear()
+                for evento in _fechar_turno(conv, ctx):
+                    yield evento
                 return
 
             resultados: list[dict] = []
@@ -353,7 +401,9 @@ class Agente:
                             {"tool": spec.name, "code": "one_write_at_a_time"},
                         )
                         continue
-                async for evento in self._executar(chamada, conv, ctx, resultados):
+                async for evento in self._executar(
+                    chamada, conv, ctx, resultados, so_propor=so_propor
+                ):
                     yield evento
 
             conv.historico.append({"role": "user", "content": resultados})
@@ -366,7 +416,7 @@ class Agente:
         yield Evento("escalated", {"motivo": "turn_limit"})
 
     async def _chamar_modelo(
-        self, ctx: AgentContext, mensagens: list[dict], escolha: dict[str, str]
+        self, ctx: AgentContext, mensagens: list[dict], escolha: dict[str, Any]
     ) -> tuple[Any, Evento]:
         """Uma chamada paga, com o custo no contexto, no audit e na tela.
 
@@ -453,6 +503,63 @@ class Agente:
         refeito = "".join(b.text for b in refeitos).strip()
         return [uso], refeitos, refeito
 
+    async def _pedir_a_proposta(
+        self, conv: Conversation, ctx: AgentContext
+    ) -> tuple[list[Evento], list]:
+        """Pede ao modelo a chamada da ferramenta que ele ia confirmar em texto.
+
+        Uma chamada a mais, só quando a resposta pede confirmação de alteração
+        sem proposta retida (`confirmacao_em_texto.pede_confirmacao`). O
+        rascunho com a pergunta não vai para a tela nem para o histórico. A
+        nota entra no FIM da última mensagem da pessoa (depois dos resultados
+        de ferramenta), e fica no histórico quando a chamada vem: o modelo
+        precisa lembrar por que chamou a ferramenta, e o histórico continua só
+        crescendo, sem editar o que já foi enviado antes.
+
+        Devolve os eventos e os blocos da resposta quando ela traz chamada de
+        ferramenta; lista vazia quando não traz, quando o modelo recusa ou
+        quando o provedor falha. Nesses casos fica o rascunho: a pergunta em
+        texto é o comportamento de antes, não um turno perdido.
+        """
+        # A última mensagem é da pessoa: o rascunho ainda não entrou no histórico.
+        nota = i18n.texto("nota.proposta_em_texto", ctx.idioma)
+        com_nota = _com_nota(conv.historico[-1], nota)
+        escolha = _escolha_para_propor(MODEL)
+        try:
+            resposta, uso = await self._chamar_modelo(
+                ctx, [*conv.historico[:-1], com_nota], escolha
+            )
+        except Exception as exc:  # noqa: BLE001 — erro de provedor nunca vaza cru
+            falha = classificar(exc)
+            self.saude.registrar_falha(falha.codigo)
+            self._registrar_falha(falha, ctx)
+            return [], []
+
+        blocos = [b for b in resposta.content if b.type != "text" or b.text.strip()]
+        chamadas = (
+            [b.name for b in blocos if b.type == "tool_use"]
+            if resposta.stop_reason != "refusal"
+            else []
+        )
+        ctx.registrar(
+            kind="proposal_check",
+            tool=MODEL,
+            input={"tool_choice": escolha["type"]},
+            output={"chamou": chamadas},
+            reason_code="confirmation_asked_in_text",
+        )
+        eventos = [
+            uso,
+            Evento(
+                "proposal_check",
+                {"motivo": "confirmation_asked_in_text", "chamou": chamadas},
+            ),
+        ]
+        if not chamadas:
+            return eventos, []
+        conv.historico[-1] = com_nota
+        return eventos, blocos
+
     @staticmethod
     def _registrar_falha(falha: FalhaDoProvedor, ctx: AgentContext) -> None:
         # Linha de diagnóstico no log do servidor: status, tipo do erro, request
@@ -506,6 +613,8 @@ class Agente:
         conv: Conversation,
         ctx: AgentContext,
         resultados: list[dict],
+        *,
+        so_propor: bool = False,
     ) -> AsyncIterator[Evento]:
         spec = REGISTRY.get(chamada.name)
         if spec is None:
@@ -540,7 +649,15 @@ class Agente:
 
             # Gate de confirmação (G-17). O modelo pode ter sido convencido a
             # pular a etapa; o runtime não.
-            if spec.requires_confirmation and sig not in ctx.confirmacoes:
+            #
+            # `so_propor`: a chamada veio do pedido de proposta, feito porque o
+            # modelo estava PERGUNTANDO à pessoa. Ela ainda não respondeu a essa
+            # pergunta, então a chamada vira proposta mesmo que a mesma escrita
+            # esteja confirmável desde o turno anterior. Sem isto, o pedido de
+            # proposta podia executar uma escrita depois de um "não, espera".
+            if spec.requires_confirmation and (
+                so_propor or sig not in ctx.confirmacoes
+            ):
                 # Antes do gate, a PRÉVIA: leituras e política, sem gravar. Uma
                 # escrita que a regra barra não tem o que confirmar, e pedir o
                 # "sim" antes fazia "domingo às 10h" recusar só na mensagem
@@ -659,6 +776,48 @@ class Agente:
                 "content": json.dumps(saida, ensure_ascii=False),
             }
         )
+
+
+def _fechar_turno(conv: Conversation, ctx: AgentContext) -> list[Evento]:
+    """Fim do turno: a proposta que chegou à pessoa vira a confirmação pendente.
+
+    Só agora ela fica confirmável, e só na próxima fala da pessoa a escrita
+    pode executar. É este passo que garante que existiu um humano entre a
+    intenção e a gravação. Atribuição, não acúmulo: a confirmação vale só para
+    a mensagem SEGUINTE; acumulando, um "sim" cinco mensagens depois, ou depois
+    de a pessoa mudar de ideia, ainda executava a proposta velha.
+
+    E o estado passa a dizer o que o código sabe. Antes ele ficava em
+    `confirming` desde a primeira proposta até a próxima escrita: depois de uma
+    recusa de regra, ou de um turno só em texto, a tela continuava "esperando a
+    sua confirmação" sem proposta nenhuma pendente.
+    """
+    ctx.confirmacoes = set(ctx.propostas_do_turno)
+    ctx.propostas_do_turno.clear()
+    if ctx.confirmacoes or conv.state is not State.CONFIRMING:
+        return []
+    conv.avancar(State.COLLECTING)
+    return [Evento("state", {"estado": conv.state.value})]
+
+
+def _escolha_para_propor(modelo: str) -> dict[str, Any]:
+    """`tool_choice` do pedido de proposta: forçado onde o modelo aceita.
+
+    Uma escrita por resposta em qualquer caso (`disable_parallel_tool_use`).
+    """
+    tipo = "auto" if modelo.startswith(MODELOS_SEM_TOOL_CHOICE_FORCADO) else "any"
+    return {"type": tipo, "disable_parallel_tool_use": True}
+
+
+def _com_nota(mensagem: dict, nota: str) -> dict:
+    """A mesma mensagem da pessoa com a nota do sistema no fim."""
+    conteudo = mensagem["content"]
+    blocos = (
+        [{"type": "text", "text": conteudo}]
+        if isinstance(conteudo, str)
+        else list(conteudo)
+    )
+    return {**mensagem, "content": [*blocos, {"type": "text", "text": nota}]}
 
 
 def _eventos_de_politica(ctx: AgentContext, antes: int) -> list[Evento]:

@@ -11,9 +11,9 @@ Escopo aceito: `pgtech-agents/clientes/clinica-aurora/docs/escopo.md`.
 
 | # | Momento | O que aparece na tela |
 |---|---|---|
-| 1 | **Escreve com uma confirmação** | "remarca a da Ana pras 16h" → uma proposta, o "sim", e a linha muda no painel do ERP, ao vivo |
+| 1 | **Escreve com uma confirmação** | "remarca a da Ana pras 16h" → uma proposta, o "sim", e a linha muda no painel do ERP, ao vivo. Se o modelo perguntar "confirma?" em texto, o loop pede a chamada da ferramenta antes de responder: o "sim" é um só |
 | 2 | **A regra decide antes do "sim"** | "passa a da Ana pra domingo" → `outside_business_hours` na primeira resposta, sem pedir confirmação |
-| 3 | **Recusa por política** | cancelar uma consulta que começa em 2h → `cancel_window_requires_reason` antes de qualquer confirmação |
+| 3 | **Recusa por política** | cancelar uma consulta a menos de 24 h → `cancel_window_requires_reason` antes de qualquer confirmação |
 | 4 | **Recusa fora de escopo** | "me escreve um poema" → o agente diz que só cuida da agenda |
 | 5 | **Não fabrica quando quebra** | o visitante derruba o ERP → o agente diz que não gravou, em vez de inventar confirmação |
 | 6 | **Não diz nome de paciente que você não disse** | "marca para Maria Teste" → "não encontrei no cadastro", sem listar ninguém |
@@ -87,8 +87,13 @@ cd agent && ANTHROPIC_API_KEY=... ../.venv/bin/python scripts/avaliar_idioma.py 
   renderizam ANTES do system no prefixo, então esvaziá-las invalidava tudo atrás, inclusive o bloco
   que carrega o breakpoint. A trava correta é `tool_choice: none`, que segura a escrita sem tirar um
   byte do prefixo (`tests/test_agent.py::test_gate_de_confirmacao_nao_muda_o_prefixo_cacheado`).
-- A agenda semeada respeita o expediente: nasce no próximo dia útil inteiro, nunca "amanhã" —
-  `tests/test_seed.py` varre um ano de aberturas para garantir isso.
+- A agenda semeada respeita o expediente em qualquer hora em que for aberta: Ana e Marta no
+  primeiro dia útil inteiro depois de amanhã (a Marta fica livre amanhã, para a P-6 ter roteiro), e o
+  João no primeiro meio-hora de expediente a partir de 1 h depois, a menos de 24 h sempre que o
+  expediente deixa (a exceção é de sábado depois das 10h30 a domingo 8h). `tests/test_seed.py`
+  varre um ano de aberturas, em onze horas do dia, para garantir isso.
+- O status da conversa reflete a proposta pendente no código: depois de uma recusa ou de uma
+  resposta só em texto, ele sai de "esperando a sua confirmação".
 
 ## Limites da demo
 
