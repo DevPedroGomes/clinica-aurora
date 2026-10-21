@@ -42,6 +42,17 @@ BAHIA = timezone(timedelta(hours=-3))
 # dois comporta um dia de agenda inteiro, então a semeadura os pula.
 FIM_DE_SEMANA = {5, 6}
 
+# Expediente por dia da semana (0 = segunda), em horas inteiras: abre, fecha.
+# Mesma tabela de `agent/src/policy/rules.yaml`; `tests/test_seed.py` confere
+# cada consulta semeada contra o motor de política, então as duas não divergem
+# sem o teste acusar.
+EXPEDIENTE = {0: (8, 18), 1: (8, 18), 2: (8, 18), 3: (8, 18), 4: (8, 18), 5: (8, 12)}
+
+# A consulta do João nasce pelo menos isto à frente do relógio, para ainda
+# estar no futuro quando a pessoa pedir para cancelar.
+FOLGA_DO_JOAO = timedelta(hours=1)
+DURACAO_DO_JOAO = timedelta(minutes=30)
+
 PROFISSIONAIS = [
     Profissional(
         id="prof_bruno", nome="Dr. Bruno Salles", especialidade="Clínico geral"
@@ -124,16 +135,54 @@ def _proximo_dia_util(hoje: datetime) -> datetime:
     return dia.replace(hour=9, minute=0, second=0, microsecond=0)
 
 
+def _cabe_no_expediente(inicio: datetime, duracao: timedelta) -> bool:
+    horas = EXPEDIENTE.get(inicio.weekday())
+    if horas is None:
+        return False
+    abre = inicio.replace(hour=horas[0], minute=0, second=0, microsecond=0)
+    fecha = inicio.replace(hour=horas[1], minute=0, second=0, microsecond=0)
+    return abre <= inicio and inicio + duracao <= fecha
+
+
+def _horario_do_joao(hoje: datetime) -> datetime:
+    """O primeiro meio-hora de expediente a partir de `hoje + FOLGA_DO_JOAO`.
+
+    Antes era "daqui a 2 horas", em qualquer horário: às 18h56 de uma terça a
+    agenda abria com o João às 20h, fora do expediente que a própria regra
+    impõe. Agora a consulta nasce sempre dentro do expediente, e quase sempre a
+    menos de 24 h, que é o que faz "Cancele a consulta do João" pedir o motivo
+    (P-1). A exceção vai de sábado depois das 10h30 a domingo 8h: nela nenhum
+    horário de expediente fica a menos de 24 h (o próximo é segunda às 8h), e
+    entre a regra de expediente e a de cancelamento, a semeadura respeita as
+    duas: o João vai para segunda às 8h e o cancelamento só pede o "sim".
+    """
+    passo = timedelta(minutes=30)
+    inicio = (hoje + FOLGA_DO_JOAO).replace(second=0, microsecond=0)
+    if inicio.minute % 30:
+        inicio += timedelta(minutes=30 - inicio.minute % 30)
+    while not _cabe_no_expediente(inicio, DURACAO_DO_JOAO):
+        inicio += passo
+    return inicio
+
+
 def _seed(agora: datetime, ids: count) -> dict[str, Consulta]:
     """Agenda inicial ancorada no relógio, não em datas fixas.
 
-    A demo precisa que exista sempre: uma consulta remarcável dentro do
-    expediente, um horário ocupado no mesmo dia (para provar o conflito) e uma
-    consulta dentro da janela de 24h (para provar a recusa por política).
+    Toda consulta semeada respeita o expediente, e a agenda permite os roteiros
+    que a página e a verificação pós-deploy usam:
+
+    - Ana: remarcar para as 16h passa (dia útil inteiro);
+    - Marta: ocupa as 11h do mesmo dia e profissional da Ana, para o conflito
+      (P-3) existir; e não tem consulta AMANHÃ, para "marque 10 consultas para
+      a Marta amanhã" render uma proposta e a segunda do dia cair na P-6;
+    - João: a menos de 24 h sempre que o expediente permite, para o
+      cancelamento pedir o motivo (P-1). Ver `_horario_do_joao`.
+
+    Por isso Ana e Marta nascem no primeiro dia útil inteiro DEPOIS de amanhã:
+    no próximo dia útil, de segunda a quinta, a Marta estaria amanhã.
     """
     hoje = agora.astimezone(BAHIA)
-    util = _proximo_dia_util(hoje)
-    daqui_2h = (hoje + timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
+    util = _proximo_dia_util(hoje + timedelta(days=1))
 
     linhas = [
         # Dia útil inteiro: remarcar para as 16h cabe no expediente em qualquer
@@ -141,12 +190,8 @@ def _seed(agora: datetime, ids: count) -> dict[str, Consulta]:
         ("pac_ana", "prof_bruno", util, 45),
         # ocupa 11h do mesmo dia: qualquer remarcação para cá dá SLOT_CONFLICT
         ("pac_marta", "prof_bruno", util.replace(hour=11), 30),
-        # daqui a 2h: cancelar isto exige motivo (CANCEL_WINDOW_REQUIRES_REASON).
-        # Ancorada no relógio DE PROPÓSITO, e não no expediente: P-1 olha a
-        # antecedência (<24h), e num sábado à tarde não existe horário que seja
-        # ao mesmo tempo de expediente e a menos de 24h daqui. Entre uma linha
-        # fora do horário de atendimento e um preset que não prova nada, a linha.
-        ("pac_joao", "prof_helena", daqui_2h, 30),
+        # cancelar isto exige motivo (CANCEL_WINDOW_REQUIRES_REASON)
+        ("pac_joao", "prof_helena", _horario_do_joao(hoje), 30),
     ]
 
     consultas: dict[str, Consulta] = {}
