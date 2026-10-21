@@ -490,7 +490,7 @@ const T = {
     sugestoes: [
       { rotulo: "Só consultar", msg: "O que tem na agenda do Dr. Bruno?", efeito: "Mostra os horários ocupados e livres, sem nome de paciente. Nada muda." },
       { rotulo: "Remarcar com confirmação", msg: "Remarque a consulta da Ana para as 16h", efeito: "Propõe a mudança e espera o seu “sim”. Só grava depois." },
-      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "A regra pede o motivo antes de qualquer confirmação: faltam menos de 24 h." },
+      { rotulo: "Regra da clínica", msg: "Cancele a consulta do João", efeito: "Faltando menos de 24 h, a regra pede o motivo antes de qualquer confirmação." },
       { rotulo: "Fora do expediente", msg: "Passe a consulta da Ana para domingo às 10h", efeito: "A regra de expediente recusa na primeira resposta, sem pedir confirmação. Nada é gravado." },
       { rotulo: "Fora do escopo", msg: "Escreva um poema sobre o mar", efeito: "Recusa curta. A conversa continua." },
       { rotulo: "Outro idioma", msg: "¿Qué hay en la agenda?", efeito: "Responde em espanhol, no idioma de quem escreveu." },
@@ -545,6 +545,10 @@ const T = {
       cacheLido: (n) => `cache lido ${n}`, semCache: "sem leitura de cache", tarifas: "tarifas",
       encerrada: "encerrada", simulado: "encaminhamento simulado",
       provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
+      proposta: "proposta",
+      propostaTexto: (tools) => tools.length
+        ? `confirmação pedida em texto; o modelo chamou <b>${tools.join(", ")}</b> para a regra decidir`
+        : "confirmação pedida em texto; o modelo não chamou ferramenta",
       idioma: "idioma",
       idiomaTexto: (det, alvo, ok) => ok
         ? `resposta em <b>${det}</b> reescrita em <b>${alvo}</b>`
@@ -605,7 +609,7 @@ const T = {
     sugestoes: [
       { rotulo: "Read only", msg: "What's on Dr. Bruno's schedule?", efeito: "Shows booked and free slots, without patient names. Nothing changes." },
       { rotulo: "Reschedule with confirmation", msg: "Move Ana's appointment to 4pm", efeito: "Proposes the change and waits for your “yes”. Writes only after." },
-      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "The rule asks for a reason before any confirmation: it's under 24 h away." },
+      { rotulo: "Clinic rule", msg: "Cancel João's appointment", efeito: "Under 24 h away, the rule asks for a reason before any confirmation." },
       { rotulo: "Outside opening hours", msg: "Move Ana's appointment to Sunday at 10am", efeito: "The opening-hours rule refuses in the first reply, without asking for confirmation. Nothing is written." },
       { rotulo: "Off-scope", msg: "Write me a poem about the sea", efeito: "Short refusal. The conversation goes on." },
       { rotulo: "Another language", msg: "¿Qué hay en la agenda?", efeito: "Answers in Spanish, the language it was asked in." },
@@ -655,6 +659,10 @@ const T = {
       cacheLido: (n) => `cache read ${n}`, semCache: "no cache read", tarifas: "rates",
       encerrada: "closed", simulado: "simulated handoff",
       provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
+      proposta: "proposal",
+      propostaTexto: (tools) => tools.length
+        ? `confirmation asked in text; the model called <b>${tools.join(", ")}</b> so the rule decides`
+        : "confirmation asked in text; the model called no tool",
       idioma: "language",
       idiomaTexto: (det, alvo, ok) => ok
         ? `reply in <b>${det}</b> rewritten in <b>${alvo}</b>`
@@ -997,6 +1005,11 @@ function renderizar(tipo, d) {
       break;
     case "tool_error":
       evento(L.falhou, `<b>${esc(d.tool)}</b>: ${esc(d.code)}`, "erro");
+      break;
+    case "proposal_check":
+      // A resposta pedia "confirma?" em texto, sem proposta retida no código. Em
+      // vez de mostrar a pergunta, o turno pediu a chamada da ferramenta.
+      evento(L.proposta, L.propostaTexto((d.chamou || []).map(esc)), "medida");
       break;
     case "language_check":
       // A checagem barata do idioma da resposta. Só aparece quando a resposta

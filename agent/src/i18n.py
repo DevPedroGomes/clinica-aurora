@@ -83,6 +83,24 @@ CATALOGO: dict[str, dict[Idioma, str]] = {
             "changes."
         ),
     },
+    "nota.proposta_em_texto": {
+        "pt": (
+            "<verificacao_de_proposta>A sua resposta pedia, em texto, a "
+            "confirmação de uma alteração. Pergunta em texto não registra nada "
+            "no sistema: a pessoa teria de confirmar duas vezes. Chame agora a "
+            "ferramenta dessa alteração, com os dados que você ia propor. O "
+            "sistema retém a chamada e pede a confirmação; se a regra da clínica "
+            "recusar, explique e ofereça a alternativa.</verificacao_de_proposta>"
+        ),
+        "en": (
+            "<proposal_check>Your reply asked, in text, for confirmation of a "
+            "change. A question in text records nothing in the system: the "
+            "person would have to confirm twice. Call the tool for that change "
+            "now, with the details you were going to propose. The system holds "
+            "the call and asks for the confirmation; if the clinic's rule "
+            "refuses, explain it and offer the alternative.</proposal_check>"
+        ),
+    },
     "erro.uma_por_vez": {
         "pt": "Uma alteração por vez. Diga que faz uma de cada vez e não prometa as outras.",
         "en": "One change at a time. Say you do one at a time and do not promise the others.",
