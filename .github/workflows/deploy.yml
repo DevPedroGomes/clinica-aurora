@@ -51,7 +51,10 @@ jobs:
       # starlette novo, incompativel com o fastapi do agente). Instalar num venv
       # separado e o que garante que a suite dele roda sob a mesma resolucao que
       # a imagem dele vai ter — testar sob as deps do agente nao provaria nada.
-      - name: Testes do servidor MCP (venv proprio)
+      # `tests/test_imagem.py` monta so os arquivos que os COPY do Dockerfile
+      # levam e importa o servidor ali: import que sai da imagem quebra aqui,
+      # e nao em producao (foi o que derrubou o MCP no #8).
+      - name: Testes do servidor MCP (venv proprio, imagem montada pelos COPY)
         run: |
           python -m venv /tmp/mcpvenv
           /tmp/mcpvenv/bin/pip install -q -r mcpsrv/requirements.txt pytest==8.3.4 pytest-asyncio==0.25.0
