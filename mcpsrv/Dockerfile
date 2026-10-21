@@ -32,6 +32,8 @@ COPY agent/src/__init__.py ./agent/src/__init__.py
 COPY agent/src/policy ./agent/src/policy
 COPY agent/src/tools ./agent/src/tools
 COPY agent/src/adapters ./agent/src/adapters
+# O catalogo de textos por idioma: tools/ e policy/ importam dele.
+COPY agent/src/i18n.py ./agent/src/i18n.py
 
 USER appuser
 EXPOSE 8080
