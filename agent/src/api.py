@@ -197,30 +197,6 @@ def health() -> dict[str, str | None]:
     return {"status": "ok", "model": MODEL, "agente": agente.saude.resumo()["agente"]}
 
 
-# `proof.json` é gerado no CI (scripts/gerar_provas.py) e baked na imagem. Fica
-# em memória porque não muda em runtime: é uma foto do build.
-_PROVAS: dict[str, object] | None = None
-try:
-    _PROVAS = json.loads((STATIC / "proof.json").read_text("utf-8"))
-except (OSError, json.JSONDecodeError):
-    # Sem o arquivo (rodando local, ou build sem o passo do CI) a barra some da
-    # tela em vez de mostrar número inventado. O case study do portfólio dizia
-    # "124 tests" enquanto a suíte rodava 134 — número de prova que envelhece em
-    # silêncio é pior do que prova nenhuma.
-    _PROVAS = None
-
-
-@app.get("/api/meta")
-def meta() -> dict[str, object]:
-    """O que a barra de provas mostra. Nada aqui é digitado à mão.
-
-    Só o que já é público na tela ou no repo. O saldo do teto NÃO entra: numa
-    rota aberta ele diria a qualquer visitante quanto falta para derrubar a
-    demo do dia (ver `test_health_nao_conta_quanto_sobrou_do_teto`).
-    """
-    return dict(_PROVAS) if _PROVAS else {}
-
-
 @app.post("/api/chat")
 async def chat(
     request: Request,

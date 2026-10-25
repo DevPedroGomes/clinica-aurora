@@ -232,11 +232,6 @@
 
   /* ---------- Abaixo do painel */
   .sob{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px 48px;padding:22px 6px 0}
-  .provas{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start}
-  .provas span{font-family:var(--mono);font-size:12px;color:var(--tinta-3);border:1px solid var(--linha);
-    border-radius:999px;padding:4px 11px;font-variant-numeric:tabular-nums}
-  .provas b{font-weight:500;color:var(--tinta)}
-  .provas-nota{flex-basis:100%;font-size:12.5px;color:var(--tinta-3);margin-top:4px}
   .limites{font-size:13px;color:var(--tinta-3);line-height:1.65;max-width:62ch}
   .limites strong{font-weight:500;color:var(--tinta-2)}
 
@@ -398,10 +393,6 @@
     </div>
 
     <div class="sob">
-      <!-- Barra de provas. Vazia por padrao e preenchida por /api/meta: os numeros
-           sao GERADOS no CI, nunca digitados. Se o build nao rodou o gerador, ela
-           continua invisivel: melhor nao afirmar do que afirmar errado. -->
-      <div class="provas" id="provas" hidden></div>
       <p class="limites" data-t-html="limites"></p>
     </div>
   </section>
@@ -472,7 +463,6 @@ const T = {
     gastoRotulo: "custo",
     gastoTitulo: "Quanto esta conversa custou até agora, em dólares (US$), pelas tarifas de pricing.yaml",
     logVazio: "Cada consulta à agenda, cada decisão de regra e cada gravação aparece aqui, com o código da regra que decidiu.",
-    provasNota: "Números gerados no CI desta versão, não digitados.",
     limites: '<strong>Limites da demo.</strong> Sessão anônima com agenda própria e isolada, no máximo 3 alterações por conversa e teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real. Há um botão de desligar geral, e nada fica guardado depois da sessão.',
     fimTitulo: "Quer isso na agenda ou no ERP da sua empresa?",
     fimTexto: "A Gomio monta o fluxo nos sistemas que você já usa. As suas regras decidem, o agente executa, e cada passo fica registrado.",
@@ -554,14 +544,6 @@ const T = {
         ? `resposta em <b>${det}</b> reescrita em <b>${alvo}</b>`
         : `resposta em <b>${det}</b>, esperado <b>${alvo}</b>`,
     },
-    provas: (d) => [
-      [`<b>${d.testes}</b> testes`, "Passaram no CI antes de a imagem ser construída"],
-      [`cobertura <b>${d.cobertura_total}%</b>`, "Agente inteiro"],
-      [`regras <b>${d.cobertura_policy}%</b>`, "Exigido 100% no CI: é o que decide o que pode ou não"],
-      [`<b>${esc(d.modelo)}</b>`, "Modelo configurado"],
-      [`regras <b>${esc(d.rules_version)}</b>`, "Versão de policy/rules.yaml carimbada em cada decisão"],
-      [`tarifas <b>${esc(d.rates_version)}</b>`, "Versão de pricing.yaml carimbada em cada linha de custo"],
-    ],
   },
   en: {
     htmlLang: "en", locale: "en-US",
@@ -591,7 +573,6 @@ const T = {
     gastoRotulo: "cost",
     gastoTitulo: "What this conversation has cost so far, in US dollars, at the rates in pricing.yaml",
     logVazio: "Every schedule lookup, every policy decision and every write shows up here, with the code of the rule that decided it.",
-    provasNota: "Numbers generated in CI for this build, never typed in.",
     limites: '<strong>Demo limits.</strong> Anonymous session with its own isolated schedule, at most 3 changes per conversation and a daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after. There is a kill switch, and nothing persists after the session.',
     fimTitulo: "Want this on your company's schedule or ERP?",
     fimTexto: "Gomio builds the flow into the systems you already use. Your rules decide, the agent executes, and every step is logged.",
@@ -668,14 +649,6 @@ const T = {
         ? `reply in <b>${det}</b> rewritten in <b>${alvo}</b>`
         : `reply in <b>${det}</b>, expected <b>${alvo}</b>`,
     },
-    provas: (d) => [
-      [`<b>${d.testes}</b> tests`, "Green in CI before the image is built"],
-      [`<b>${d.cobertura_total}%</b> coverage`, "Whole agent"],
-      [`policy <b>${d.cobertura_policy}%</b>`, "Gated at 100% in CI: it decides what is allowed"],
-      [`<b>${esc(d.modelo)}</b>`, "Configured model"],
-      [`rules <b>${esc(d.rules_version)}</b>`, "Version of policy/rules.yaml stamped on every decision"],
-      [`rates <b>${esc(d.rates_version)}</b>`, "Version of pricing.yaml stamped on every cost line"],
-    ],
   },
 };
 
@@ -797,23 +770,6 @@ function travar(sim) {
   $("#enviar").disabled = sim;
   document.querySelectorAll("#sugestoes button").forEach((b) => { b.disabled = sim; });
   $("#entrada").placeholder = sim ? t().placeholderEncerrada : t().placeholder;
-}
-
-let dadosProvas = null;
-async function carregarProvas() {
-  try {
-    const d = await (await fetch("/api/meta")).json();
-    if (!d || !d.testes) return;  // build sem o gerador: a barra fica escondida
-    dadosProvas = d;
-    desenharProvas();
-  } catch { /* a barra e enfeite: nunca derruba a pagina */ }
-}
-function desenharProvas() {
-  if (!dadosProvas) return;
-  const el = $("#provas");
-  el.innerHTML = t().provas(dadosProvas).map(([html, dica]) => `<span title="${esc(dica)}">${html}</span>`).join("")
-    + `<p class="provas-nota">${esc(t().provasNota)}</p>`;
-  el.hidden = false;
 }
 
 async function carregarSaude() {
@@ -1113,14 +1069,12 @@ $("#idioma").addEventListener("click", () => {
   idioma = idioma === "pt" ? "en" : "pt";
   try { localStorage.setItem("aurora_idioma", idioma); } catch {}
   aplicarIdioma();
-  desenharProvas();
   carregarAgenda();
 });
 
 aplicarIdioma();
 bolha(t().saudacao, "ela", "saudacao");
 carregarAgenda();
-carregarProvas();
 </script>
 </body>
 </html>

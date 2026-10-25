@@ -3,8 +3,8 @@ name: Build & push image (VPS auto-pulls)
 on:
   push:
     branches: [main]
-  # A PR roda so o job `test` (lint, tipos, os dois portoes de cobertura, a
-  # suite do MCP e o gerador de provas). O `build` fica de fora: ele empurra
+  # A PR roda so o job `test` (lint, tipos, os dois portoes de cobertura e a
+  # suite do MCP). O `build` fica de fora: ele empurra
   # `:latest` para o GHCR, e o timer da VPS publicaria a PR antes do merge.
   pull_request:
     branches: [main]
@@ -44,9 +44,6 @@ jobs:
         working-directory: agent
         run: python -m pytest tests/ -q --cov=src/tools --cov-report=term-missing --cov-fail-under=90
 
-      # A barra de provas da demo le static/proof.json. Gerar aqui, e nao
-      # commitar, e o que impede o numero de envelhecer: o case study dizia
-      # "124 tests" enquanto a suite ja rodava 134.
       # O servidor MCP tem conjunto de dependencias PROPRIO (o SDK arrasta
       # starlette novo, incompativel com o fastapi do agente). Instalar num venv
       # separado e o que garante que a suite dele roda sob a mesma resolucao que
@@ -59,17 +56,6 @@ jobs:
           python -m venv /tmp/mcpvenv
           /tmp/mcpvenv/bin/pip install -q -r mcpsrv/requirements.txt pytest==8.3.4 pytest-asyncio==0.25.0
           cd mcpsrv && /tmp/mcpvenv/bin/python -m pytest tests -q
-
-      - name: Gerar os numeros da barra de provas
-        working-directory: agent
-        run: python scripts/gerar_provas.py
-
-      - name: Guardar proof.json para o job de build
-        uses: actions/upload-artifact@v4
-        with:
-          name: proof
-          path: agent/static/proof.json
-          retention-days: 1
 
   build:
     needs: test
@@ -90,14 +76,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Placeholder de .env (o env_file do compose e lido no build)
         run: touch .env
-      # Vem do job `test`, que rodou a suite para produzir o numero. Sem este
-      # download a imagem sobe sem proof.json e a barra de provas some da tela
-      # — que e o comportamento certo, mas nao o desejado.
-      - name: Baixar proof.json gerado no job de teste
-        uses: actions/download-artifact@v4
-        with:
-          name: proof
-          path: agent/static/
       - name: Build + push (dirigido pelo compose)
         run: |
           docker compose build
