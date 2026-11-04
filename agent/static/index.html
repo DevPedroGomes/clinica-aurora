@@ -36,7 +36,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
 <style>
-  /* Tokens do tema escuro de gomio.com.br (src/app/globals.css), copiados por
+  /* Tokens do tema escuro do site da Gomio (src/app/globals.css), copiados por
      valor. A demo é uma página da Gomio: mesma tinta, mesmo acento, mesmas
      fontes, mesma moldura. A estrutura (conversa de um lado, decisões do outro,
      sem balão) é a do voice-demo, que é a outra demo da casa.
@@ -85,7 +85,7 @@
   .grao{position:fixed;inset:0;z-index:50;pointer-events:none;opacity:.05;mix-blend-mode:screen;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
 
-  /* ---------- Ilha de navegação (a mesma forma do header de gomio.com.br) */
+  /* ---------- Ilha de navegação (a mesma forma do header do site da Gomio) */
   .ilha-wrap{position:sticky;top:0;z-index:40;padding:14px 16px 0;pointer-events:none}
   .ilha{pointer-events:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;
     max-width:var(--envelope);height:60px;margin:0 auto;padding:0 10px 0 22px;border:1px solid var(--linha);
@@ -311,7 +311,7 @@
     <a class="marca" href="https://gomio.com.br" target="_blank" rel="noopener"><span>Gomi<span class="o">o</span></span><span class="suf" data-t="marcaSuf"></span></a>
     <div class="nav">
       <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener" data-t="navErp"></a>
-      <a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="navGomio"></a>
+      <!--contato--><a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="navGomio"></a><!--/contato-->
       <!-- A interface abre em português, que é o público da Gomio. A conversa
            continua acompanhando o idioma de quem escreve, em qualquer um deles. -->
       <button id="idioma" class="pilula" type="button" aria-label="Language / Idioma"></button>
@@ -397,23 +397,23 @@
     </div>
   </section>
 
-  <section class="fim envelope fio-topo">
+  <!--contato--><section class="fim envelope fio-topo">
     <h2 data-t="fimTitulo"></h2>
     <p data-t="fimTexto"></p>
     <div class="acoes">
       <a class="solido" href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="fimCta"></a>
       <a class="link" href="https://voz.gomio.com.br" target="_blank" rel="noopener" data-t="outraDemo"></a>
     </div>
-  </section>
+  </section><!--/contato-->
 </main>
 
 <footer class="rodape envelope fio-topo">
   <span><span data-t="feitoPor"></span> <a href="https://gomio.com.br" target="_blank" rel="noopener">Gomio</a></span>
-  <nav aria-label="Links">
+  <!--contato--><nav aria-label="Links">
     <a href="https://gomio.com.br/operacoes" target="_blank" rel="noopener" data-t="linkOperacoes"></a>
     <a href="https://gomio.com.br/demonstracoes" target="_blank" rel="noopener" data-t="outrosProjetos"></a>
     <a href="https://gomio.com.br/privacidade" target="_blank" rel="noopener" data-t="privacidade"></a>
-  </nav>
+  </nav><!--/contato-->
 </footer>
 
 <script>

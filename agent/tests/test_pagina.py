@@ -79,3 +79,9 @@ def test_versao_no_registro_tem_separador():
 
 def test_outros_projetos_leva_as_demonstracoes():
     assert 'href="https://gomio.com.br/demonstracoes"' in html
+
+
+def test_comentarios_e_css_nao_citam_o_dominio_do_site():
+    # o modo vitrine tira os comentários HTML, mas o CSS vai junto para a página
+    estilo = html[html.index("<style>") : html.index("</style>")]
+    assert "gomio.com.br" not in estilo
