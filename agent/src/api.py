@@ -22,7 +22,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import budget
@@ -388,10 +388,27 @@ async def reset(
     return resposta
 
 
+_BLOCO_CONTATO = re.compile(r"<!--contato-->.*?<!--/contato-->", re.DOTALL)
+_COMENTARIO_HTML = re.compile(r"<!--.*?-->", re.DOTALL)
+_LINK_DO_SITE = re.compile(
+    r'\s+href="https://[a-z.]*gomio\.com\.br[^"]*"(\s+target="_blank")?(\s+rel="noopener")?'
+)
+
+
+def pagina_vitrine(html: str) -> str:
+    """`/?vitrine=1`: a página sem contato nem link para o site, para servir de link de portfólio em
+    plataforma que proíbe contato nas páginas vinculadas. Os blocos marcados saem, e o que sobra da
+    marca Gomio vira texto sem destino."""
+    return _LINK_DO_SITE.sub("", _COMENTARIO_HTML.sub("", _BLOCO_CONTATO.sub("", html)))
+
+
 # HEAD junto com GET: parte dos robôs de preview de link e dos monitores de
 # uptime bate de HEAD primeiro, e `@app.get` sozinho devolvia 405 para eles.
 @app.api_route("/", methods=["GET", "HEAD"])
-def index() -> FileResponse:
+def index(vitrine: str | None = None) -> Response:
+    if vitrine == "1":
+        html = pagina_vitrine((STATIC / "index.html").read_text("utf-8"))
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     # Sem Cache-Control o navegador escolhe o prazo por heuristica e continua
     # servindo a versao anterior da demo depois de um deploy, sem revalidar.
     # `no-cache` nao proibe guardar: obriga a perguntar antes de usar, e a

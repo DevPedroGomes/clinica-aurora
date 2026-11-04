@@ -339,3 +339,25 @@ def test_estado_com_erp_inalcancavel_responde_503(api, metodo, caminho, rota):
         r = getattr(c, metodo)(caminho)
     assert r.status_code == 503
     assert r.json() == {"detail": "ERP unreachable."}
+
+
+# --- modo vitrine: link de portfólio em plataforma que proíbe contato ---------------------------------
+
+
+def test_vitrine_tira_contato_e_links_do_site(api):
+    r = cliente(api).get("/?vitrine=1")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    baixo = r.text.lower()
+    for termo in ("gomio.com.br", "whatsapp", "wa.me", "mailto:", "tel:", "linkedin"):
+        assert termo not in baixo, termo
+    assert 'class="fim' not in r.text and 'id="idioma"' in r.text
+    assert 'class="marca"' in r.text and "aurora-erp.pgdev.com.br/docs" in r.text
+
+
+def test_sem_vitrine_a_pagina_fica_igual(api):
+    for rota in ("/", "/?vitrine=0", "/?vitrine=true"):
+        r = cliente(api).get(rota)
+        assert (
+            'href="https://gomio.com.br/demonstracoes"' in r.text
+            and 'class="fim' in r.text
+        )
