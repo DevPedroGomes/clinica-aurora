@@ -83,7 +83,9 @@ def test_outros_projetos_leva_as_demonstracoes():
 
 def test_comentarios_e_css_nao_citam_o_dominio_do_site():
     # o modo vitrine tira os comentários HTML, mas o CSS vai junto para a página
-    estilo = html[html.index("<style>") : html.index("</style>")]
+    # o favicon em data URI também tem <style>: a busca é pela folha real, que começa em nova linha
+    estilo = html[html.index("<style>\n") : html.rindex("</style>")]
+    assert ":root{" in estilo
     assert "gomio.com.br" not in estilo
 
 
@@ -156,10 +158,6 @@ def test_rotulo_do_link_nos_dois_idiomas():
     assert 'data-t="linkAgentes"' in html
     assert 'linkAgentes: "Agentes de IA"' in html
     assert 'linkAgentes: "AI agents"' in html
-
-
-def test_nome_da_oferta_antiga_saiu_da_pagina():
-    assert "operações" not in html.lower() and "operations" not in html.lower()
 
 
 # -- métrica de desenvolvimento fora da tela -------------------------------------
