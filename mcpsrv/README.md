@@ -48,7 +48,8 @@ a de outra pessoa.
 2. **"Remarque a consulta da Ana para as 16h."** A primeira chamada **não grava
    nada**: devolve a proposta e um token. O seu agente tem que te mostrar isso e
    chamar de novo com o token.
-3. **"Cancele a consulta de hoje."** Sem motivo, a política **recusa**, e a
+3. **"Cancele a consulta do João."** Ela é semeada a menos de 24 h, exceto de
+   sábado às 10h30 a domingo às 8h. Sem motivo, a política **recusa**, e a
    resposta traz `cancel_window_requires_reason` mais a versão da regra. Repita
    informando o motivo e passa.
 4. **"Agende para domingo às 3 da manhã."** Recusa por expediente.
@@ -59,7 +60,8 @@ a de outra pessoa.
 
 | Tool | O que faz |
 |---|---|
-| `listar_agenda_tool` | Lê a agenda. Sem filtro, devolve tudo |
+| `buscar_paciente_tool` | Acha um paciente pelo nome e devolve o id. Nunca lista o cadastro |
+| `listar_agenda_tool` | Lê a agenda. Sem filtro, devolve tudo, e só as linhas do `paciente_id` informado trazem o nome |
 | `remarcar_consulta_tool` | Move uma consulta. Escrita |
 | `cancelar_consulta_tool` | Cancela, registrando motivo. Escrita |
 | `abrir_vaga_tool` | Abre horário livre. Escrita |
@@ -99,7 +101,7 @@ esta demo existe para mostrar.
 seu agente ──MCP/HTTP──▶ mcpsrv ──HTTP──▶ ERP (OpenAPI público)
                             │
                             ├── policy/   as regras, versionadas em YAML
-                            └── tools/    5 operações, domínio fechado
+                            └── tools/    6 operações, domínio fechado
 ```
 
 `policy/`, `tools/` e `adapters/` são **compartilhados** com o agente da demo,
@@ -115,7 +117,7 @@ para vigiar essa diferença.
 ## Rodando local
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
-ERP_URL=http://127.0.0.1:8090 .venv/bin/uvicorn server:app --port 8091
+python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest==8.3.4 pytest-asyncio==0.25.0
+ERP_URL=http://127.0.0.1:8080 MCP_ALLOWED_HOSTS='127.0.0.1:*' .venv/bin/uvicorn server:app --host 127.0.0.1 --port 8091
 .venv/bin/python -m pytest tests -q
 ```
