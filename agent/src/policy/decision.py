@@ -1,6 +1,6 @@
 """Contrato de decisão do motor de política.
 
-Regra da casa (core-spec/policy.md): o LLM nunca decide. Ele recebe uma `Decision`
+Regra da casa: o LLM nunca decide. Ele recebe uma `Decision`
 já tomada e apenas redige. Três razões, nesta ordem: jurídica (não existe defesa
 para "a IA disse"), auditável (é preciso mostrar QUAL regra produziu a decisão) e
 testável (regra determinística tem teste unitário; prompt não tem).

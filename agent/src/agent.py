@@ -4,7 +4,7 @@ Manual de propósito. O tool runner do SDK resolveria o laço, mas aqui o laço
 NÃO é só "chamou tool, executa tool": entre a decisão do modelo e a execução
 existem três portões que precisam rodar no caminho do código —
 
-  1. o gate de confirmação (G-17): escrita só executa se a MESMA operação foi
+  1. o gate de confirmação: escrita só executa se a MESMA operação foi
      proposta antes e o usuário falou depois;
   2. o teto de escritas por conversa (P-5);
   3. a política, que decide, e o audit, que registra a decisão.
@@ -47,10 +47,10 @@ from .tools.registry import (
     schema_para_anthropic,
 )
 
-# Modelo de conversa da arquitetura de referência (docs/03-arquitetura.md).
+# Modelo de conversa. Modelo sem tarifa em `pricing.yaml` é erro no cálculo de custo.
 MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
 MAX_TOKENS = 4096
-# `low` mantém a demo responsiva. O trabalho aqui é estreito — cinco tools e
+# `low` mantém a demo responsiva. O trabalho aqui é estreito — seis tools e
 # uma agenda pequena — e não é o tipo de tarefa que se beneficia de esforço alto.
 EFFORT = os.getenv("AGENT_EFFORT", "low")
 BAHIA = ZoneInfo("America/Bahia")
@@ -647,7 +647,7 @@ class Agente:
         if spec.scope == "write":
             sig = assinatura(spec.name, entrada.model_dump(mode="json"))
 
-            # Gate de confirmação (G-17). O modelo pode ter sido convencido a
+            # Gate de confirmação. O modelo pode ter sido convencido a
             # pular a etapa; o runtime não.
             #
             # `so_propor`: a chamada veio do pedido de proposta, feito porque o
@@ -680,7 +680,7 @@ class Agente:
                 # tela mostrava duas chamadas idênticas de escrita e nada entre
                 # elas — quem lia concluía escrita dupla, quando na verdade a
                 # primeira foi barrada aqui e nunca chegou ao ERP. É a garantia
-                # central da demo (G-17) ficando invisível justamente no painel
+                # central da demo ficando invisível justamente no painel
                 # construído para prová-la.
                 yield Evento(
                     "confirmation_required",

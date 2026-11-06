@@ -1,4 +1,4 @@
-# Política da Clínica Aurora — versionada, nunca hardcoded (core-spec/policy.md §5).
+# Política da Clínica Aurora — versionada, nunca hardcoded.
 #
 # Mudar um número aqui muda o comportamento do agente sem tocar em código, e a
 # versão abaixo vai junto em cada linha do audit log: é assim que se prova, meses

@@ -1,10 +1,10 @@
-"""As cinco tools da Clínica Aurora.
+"""As seis tools da Clínica Aurora.
 
 Uma por operação de negócio. Nenhuma aceita SQL, URL, caminho, comando ou nome de
-recurso arbitrário (regra 2) — `duracao_min` é domínio fechado e `consulta_id` é
+recurso arbitrário — `duracao_min` é domínio fechado e `consulta_id` é
 sempre validado contra o tenant da sessão DENTRO da tool, não no prompt.
 
-E nenhuma inventa resultado (regra 7 + escopo §4): se o ERP não gravou, a tool
+E nenhuma inventa resultado: se o ERP não gravou, a tool
 devolve ToolError e o agente escala. Não existe caminho que produza um código de
 confirmação para algo que não aconteceu.
 
@@ -88,7 +88,7 @@ async def _agenda_do_dia(
 
 
 def _resumo(c: ConsultaView) -> dict[str, str]:
-    """Só o que a conversa precisa (regra 7 / G-18).
+    """Só o que a conversa precisa.
 
     Sem o nome do paciente: quem conversa não está identificado, e a escrita
     foi pedida por alguém que já disse de quem era a consulta. Repetir o nome

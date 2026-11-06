@@ -341,7 +341,7 @@ def test_estado_com_erp_inalcancavel_responde_503(api, metodo, caminho, rota):
     assert r.json() == {"detail": "ERP unreachable."}
 
 
-# --- modo vitrine: link de portfólio em plataforma que proíbe contato ---------------------------------
+# --- modo vitrine: a página sem contato nem links para o site ---------------------------------
 
 
 def test_vitrine_tira_contato_e_links_do_site(api):

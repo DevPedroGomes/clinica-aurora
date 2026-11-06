@@ -1,4 +1,4 @@
-# A demo do arquétipo B: dois serviços separados de propósito.
+# A demo: agente e ERP são serviços separados de propósito.
 #
 # O ERP é publicado junto com o agente, com OpenAPI aberto, para que o visitante
 # possa inspecionar o outro lado da integração — e para que a escrita aconteça

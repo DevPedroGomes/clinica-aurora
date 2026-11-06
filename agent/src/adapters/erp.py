@@ -1,7 +1,7 @@
 """Adapter do clinica-aurora-erp.
 
-O passo 5 do procedimento vem antes de qualquer prompt porque a integração é
-onde o projeto morre. Regras de `docs/06-adapters.md` aplicadas aqui:
+A integração vem antes de qualquer prompt, porque é onde o projeto morre. Regras
+aplicadas aqui:
 
   1. timeout curto e explícito (5s) — sistema de cliente cai
   2. retry só em LEITURA — repetir escrita gera consulta duplicada
@@ -40,7 +40,7 @@ class ErpRecusou(Exception):
 
 @dataclass
 class ConsultaView:
-    """O mínimo que a conversa precisa. Nunca o registro inteiro (G-18)."""
+    """O mínimo que a conversa precisa. Nunca o registro inteiro."""
 
     id: str
     paciente_nome: str
@@ -71,7 +71,7 @@ class ConsultaView:
 
 @dataclass
 class PacienteView:
-    """Id e nome, e nada mais: o telefone não serve à conversa (G-18)."""
+    """Id e nome, e nada mais: o telefone não serve à conversa."""
 
     id: str
     nome: str

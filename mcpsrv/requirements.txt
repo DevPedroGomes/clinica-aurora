@@ -7,7 +7,7 @@
 #
 # Efeito colateral aceito: o codigo COMPARTILHADO (src/policy, src/tools,
 # src/adapters) roda sob pydantic 2.13 aqui e 2.10 no agente. Por isso
-# `tests/test_compartilhado.py` exercita politica e schema de tool sob ESTA
+# `tests/test_server.py` exercita politica e schema de tool sob ESTA
 # resolucao — se as duas divergirem, quebra aqui antes de chegar no ar.
 mcp==1.29.0
 httpx==0.28.1

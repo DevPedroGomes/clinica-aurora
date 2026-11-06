@@ -124,7 +124,7 @@ def test_estado_do_formato_antigo_recomeca_o_dia(monkeypatch, tmp_path):
 
 
 def test_estado_ingravavel_recusa(monkeypatch, tmp_path):
-    """O caso que quase matou voicerag e searcher: /data montado como root."""
+    """O caso clássico: /data montado como root."""
     budget = carregar(monkeypatch, tmp_path)
     monkeypatch.setattr(budget.Path, "write_text", _explode)
     with pytest.raises(budget.Bloqueado) as exc:

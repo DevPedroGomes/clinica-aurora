@@ -3,7 +3,7 @@
 Versionado com id (`PROMPT_ID`) porque um prompt sem versão não é auditável:
 quando o comportamento mudar, é preciso saber qual texto produziu qual conversa.
 
-O bloco LIMITES ABSOLUTOS é obrigatório (`core-spec/prompts.md`), mas note o
+O bloco LIMITES ABSOLUTOS é obrigatório, mas note o
 que ele NÃO faz: ele não é o que impede a escrita sem confirmação nem o que
 aplica a política. Isso é enforcement no runtime. O prompt orienta; o código
 impede. Um prompt que fosse a única defesa cairia na primeira injeção.

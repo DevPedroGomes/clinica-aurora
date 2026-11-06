@@ -1,10 +1,10 @@
 """Estado do ERP, isolado por tenant de sessão.
 
 Cada visitante da demo recebe o próprio `tenant_id` e a própria agenda semeada.
-Ninguém vê nem altera o dado de outro — é o mesmo padrão do voice_rag, e é o que
+Ninguém vê nem altera o dado de outro, e é o que
 permite deixar a demo aberta sem login.
 
-Estado em memória de propósito: nada aqui sobrevive à sessão (escopo §7).
+Estado em memória de propósito: nada aqui sobrevive à sessão.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ MAX_TENANTS_POR_ORIGEM = {"demo": 500, "mcp": 200, "api": 200}
 # O ERP e publico de proposito — a demo perde o sentido se o visitante nao
 # puder inspecionar o outro lado. Mas publico sem teto e outra coisa: sem isto,
 # um laco de POST /consultas cresce a memoria do processo sem limite nenhum, e
-# a VPS e compartilhada com todas as outras demos. O agente ja tem teto (P-5,
+# o servidor e compartilhado com outras demos. O agente ja tem teto (P-5,
 # 3 escritas por conversa); o ERP precisa do seu, porque ninguem e obrigado a
 # passar pelo agente para falar com ele.
 MAX_CONSULTAS_POR_TENANT = 40

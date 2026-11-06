@@ -1,4 +1,4 @@
-"""Cobertura 100% do motor de política — é o portão do passo 3 do procedimento.
+"""Cobertura 100% do motor de política — é o portão de cobertura do CI.
 
 É pouco código e é o que protege juridicamente: cada teste aqui é a prova de que
 uma decisão saiu de uma regra escrita, e não de um modelo de linguagem.

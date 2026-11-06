@@ -7,7 +7,7 @@ setup:
 test:
 	cd agent && ../$(PY) -m pytest tests/ -q
 
-# Portao do passo 3: policy exige 100%. Falha o alvo se cair abaixo disso.
+# Portao de cobertura: policy exige 100%. Falha o alvo se cair abaixo disso.
 cov:
 	cd agent && ../$(PY) -m pytest tests/ -q --cov=src --cov-report=term-missing --cov-fail-under=90
 	cd agent && ../$(PY) -m pytest tests/test_policy.py -q --cov=src/policy --cov-fail-under=100

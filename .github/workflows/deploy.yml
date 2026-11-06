@@ -1,11 +1,11 @@
-name: Build & push image (VPS auto-pulls)
+name: CI
 
 on:
   push:
     branches: [main]
   # A PR roda so o job `test` (lint, tipos, os dois portoes de cobertura e a
   # suite do MCP). O `build` fica de fora: ele empurra
-  # `:latest` para o GHCR, e o timer da VPS publicaria a PR antes do merge.
+  # `:latest` para o GHCR, e o servidor publicaria a PR antes do merge.
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
           cache: pip
       - name: Instalar dependencias
         run: pip install -r agent/requirements-dev.txt
-      - name: Lint e tipos (convencao da fabrica)
+      - name: Lint e tipos
         working-directory: agent
         run: |
           ruff check src tests ../erp/app ../mcpsrv
@@ -37,10 +37,10 @@ jobs:
       - name: Testes
         working-directory: agent
         run: python -m pytest tests/ -q
-      - name: Portao do passo 3 — policy exige 100%
+      - name: Portao de cobertura — policy exige 100%
         working-directory: agent
         run: python -m pytest tests/test_policy.py -q --cov=src/policy --cov-report=term-missing --cov-fail-under=100
-      - name: Portao do checklist — tools/ exige 90%
+      - name: Portao de cobertura — tools/ exige 90%
         working-directory: agent
         run: python -m pytest tests/ -q --cov=src/tools --cov-report=term-missing --cov-fail-under=90
 
@@ -81,9 +81,7 @@ jobs:
           docker compose build
           docker compose push
 
-# Sem job de deploy por SSH de proposito: a VPS puxa sozinha pelo timer
-# `ghcr-autopull@opt-showcase-clinica-aurora.timer`, que roda a cada 3 minutos,
-# sincroniza o repo e recria o container quando o digest da imagem muda.
+# Sem job de deploy por SSH de proposito: o servidor puxa sozinho, sincroniza o
+# repo e recria o container quando o digest da imagem muda.
 # Os dois rodando juntos disputavam o mesmo container e o docker respondia
 # "removal already in progress", deixando o CI vermelho num deploy que deu certo.
-# Este e o mesmo padrao build-only dos outros nove projetos migrados.

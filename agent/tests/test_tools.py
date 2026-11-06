@@ -1,7 +1,7 @@
 """Cada tool com caso feliz, caso de erro e tentativa de abuso.
 
 O teste de abuso é o que não se pula: se ele não pode ser escrito, a tool está
-permissiva demais (core-spec/tools.md).
+permissiva demais.
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ async def test_listar_com_erp_fora_nao_vaza_erro_cru(ctx: AgentContext, erp: Erp
 
 
 def test_listar_abuso_profissional_arbitrario_nao_passa_do_schema():
-    """A tool não aceita nome de recurso livre — o domínio é fechado (regra 2)."""
+    """A tool não aceita nome de recurso livre — o domínio é fechado."""
     with pytest.raises(ValidationError):
         ListarAgendaInput(
             profissional_id="'; DROP TABLE consultas; --", data="2026-08-11"
