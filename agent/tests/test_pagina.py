@@ -146,6 +146,22 @@ def test_a_demo_nao_se_chama_mais_de_operacoes():
         assert "operations demo" not in pagina
 
 
+def test_links_do_site_levam_a_rota_de_agentes():
+    assert "/operacoes" not in html
+    assert html.count('href="https://gomio.com.br/agentes"') == 2
+
+
+def test_rotulo_do_link_nos_dois_idiomas():
+    assert "linkOperacoes" not in html
+    assert 'data-t="linkAgentes"' in html
+    assert 'linkAgentes: "Agentes de IA"' in html
+    assert 'linkAgentes: "AI agents"' in html
+
+
+def test_nome_da_oferta_antiga_saiu_da_pagina():
+    assert "operações" not in html.lower() and "operations" not in html.lower()
+
+
 # -- métrica de desenvolvimento fora da tela -------------------------------------
 
 
