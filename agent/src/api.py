@@ -1,6 +1,6 @@
 """A superfície pública da demo.
 
-Sessão anônima com tenant isolado (padrão do voice_rag): cada visitante recebe
+Sessão anônima com tenant isolado: cada visitante recebe
 a própria agenda semeada e nunca vê a de outro. Sem login — cadastro afasta
 visitante e não prova nada.
 """
@@ -396,9 +396,8 @@ _LINK_DO_SITE = re.compile(
 
 
 def pagina_vitrine(html: str) -> str:
-    """`/?vitrine=1`: a página sem contato nem link para o site, para servir de link de portfólio em
-    plataforma que proíbe contato nas páginas vinculadas. Os blocos marcados saem, e o que sobra da
-    marca Gomio vira texto sem destino."""
+    """`/?vitrine=1`: a página sem contato, sem link para o site e sem comentários HTML. Os blocos
+    marcados saem, e o que sobra da marca Gomio vira texto sem destino."""
     return _LINK_DO_SITE.sub("", _COMENTARIO_HTML.sub("", _BLOCO_CONTATO.sub("", html)))
 
 

@@ -23,7 +23,7 @@ minhas regras, o meu log.**
 
 O QUE ESTE PROCESSO NÃO CONSEGUE GARANTIR
 
-O gate de confirmação (G-17) da demo depende de existir um turno humano entre a
+O gate de confirmação da demo depende de existir um turno humano entre a
 proposta e a execução. No agente da demo isso é garantido, porque o loop é nosso.
 Aqui o loop é do cliente, e um agente pode chamar a tool duas vezes seguidas sem
 nenhum humano no meio.
@@ -324,7 +324,7 @@ def _checar_escrita(
 # As assinaturas sao escritas a mao, e nao geradas do REGISTRY, porque o FastMCP
 # deriva o schema que o cliente ve da assinatura da funcao. Gerar dinamicamente
 # daria um schema opaco (**kwargs) justamente na superficie que o modelo do outro
-# lado precisa entender. `tests/test_schema.py` trava as duas fontes juntas: se
+# lado precisa entender. `tests/test_server.py` trava as duas fontes juntas: se
 # um input model ganhar campo e a assinatura aqui nao, o teste quebra.
 
 

@@ -130,7 +130,7 @@ def test_gatilho_de_escalacao_desconhecido_nao_passa():
         Conversation().escalar("porque_sim")
 
 
-# -- gate de confirmação (G-17) ----------------------------------------------
+# -- gate de confirmação ----------------------------------------------
 
 
 async def test_escrita_sem_confirmacao_nao_executa(ctx: AgentContext, erp: ErpFake):

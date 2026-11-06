@@ -1,4 +1,4 @@
-"""ERP falso, em memória — modo `fake` obrigatório de `docs/06-adapters.md` §5.
+"""ERP falso, em memória: o modo `fake` obrigatório do adapter.
 
 Sem isto a suíte depende do sistema do cliente estar de pé, e uma suíte que
 depende de rede não roda no CI nem no laptop de ninguém.

@@ -1,6 +1,6 @@
 """A página da demo, lida como texto: ela não tem suíte JS.
 
-O que é pino aqui é o que a auditoria de 20/10 achou na tela: a página se
+O que é pino aqui é o que já deu errado na tela: a página se
 apresentava como agenda "de verdade", a versão em inglês mantinha a saudação e
 o rótulo "ASSISTENTE" em português, o F5 deixava a proposta pendente viva, a
 linha cancelada só era tachada (nada para leitor de tela), e o texto acessível

@@ -1,6 +1,6 @@
 """A resposta do modelo pede, em texto, a confirmação de uma alteração?
 
-O gate de confirmação (G-17) só conhece o que passou pela ferramenta: a escrita
+O gate de confirmação só conhece o que passou pela ferramenta: a escrita
 é retida, vira proposta e a próxima fala da pessoa pode confirmá-la. Uma
 pergunta em TEXTO ("Você quer remarcar essa para as 16h?") não registra nada.
 Quando a pessoa respondia "sim", o modelo enfim chamava a ferramenta, o gate

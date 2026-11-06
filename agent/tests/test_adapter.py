@@ -68,7 +68,7 @@ async def test_leitura_repete_uma_vez_em_5xx(client: httpx.AsyncClient):
 
 @respx.mock
 async def test_escrita_nunca_repete(client: httpx.AsyncClient):
-    """Retry em escrita gera consulta duplicada — docs/06-adapters §2."""
+    """Retry em escrita gera consulta duplicada."""
     rota = respx.patch(f"{BASE}/consultas/cons_1").mock(
         return_value=httpx.Response(503)
     )

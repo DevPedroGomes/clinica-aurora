@@ -1,10 +1,10 @@
 """State machine da conversa.
 
-Nunca "agente livre" (G-06). Agente livre parece elegante na demo e vira
+Nunca "agente livre". Agente livre parece elegante na demo e vira
 imprevisível em produção: entra em loop, pula a confirmação, esquece o que já
 perguntou. Estado explícito é o que torna o comportamento testável.
 
-`CONFIRMING` é obrigatório antes de toda escrita (G-17) — e isso é interceptor
+`CONFIRMING` é obrigatório antes de toda escrita — e isso é interceptor
 no caminho do código, não instrução de prompt. O modelo não tem como pular.
 """
 
@@ -44,8 +44,9 @@ class TransitionError(Exception):
     """Transição não declarada é bug, não criatividade."""
 
 
-# Os cinco gatilhos do core-spec, mais nada. Cada um é verificável no código —
-# nenhum depende de o modelo "perceber" que deveria escalar.
+# Os cinco gatilhos que `escalar` aceita, mais nada. `explicit_request` está
+# declarado e ainda não tem chamador no loop; `out_of_scope` só conta recusa do
+# provedor (`stop_reason: refusal`), e pedido fora de escopo comum fica com o modelo.
 ESCALATION_TRIGGERS = (
     "explicit_request",  # o usuário pediu uma pessoa
     "policy_denied_twice",  # duas negativas seguidas de política
@@ -62,7 +63,7 @@ MAX_POLICY_DENIALS = 2
 @dataclass
 class Conversation:
     """Estado da conversa. Em produção isto vive no banco — o processo pode
-    morrer entre turnos. Nesta demo a sessão é efêmera por desenho (escopo §7).
+    morrer entre turnos. Nesta demo a sessão é efêmera por desenho.
     """
 
     state: State = State.GREETING

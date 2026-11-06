@@ -1,4 +1,4 @@
-"""Os cenários da auditoria de 20/10, como suíte.
+"""Cenários de tela, como suíte.
 
 Cada teste é um roteiro que alguém fez na tela e que deu errado, ou que precisa
 continuar dando certo. A matriz completa (qual teste cobre qual cenário) está no

@@ -1,4 +1,4 @@
-"""As cinco regras que o modelo não decide.
+"""As seis regras que o modelo não decide.
 
 Funções puras: sem rede, sem relógio interno, sem banco. Todo dado necessário
 chega por parâmetro — inclusive `at`, que é o que torna cada regra testável em

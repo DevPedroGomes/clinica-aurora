@@ -8,8 +8,8 @@
 <meta name="author" content="Gomio">
 <meta name="theme-color" content="#14120e">
 
-<!-- Sem estas tags o link vira URL crua no LinkedIn, no WhatsApp e no Upwork —
-     que é justamente onde ele é compartilhado. og:image precisa ser absoluta. -->
+<!-- Sem estas tags o link compartilhado vira URL crua, sem card.
+     og:image precisa ser absoluta. -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aurora.pgdev.com.br/">
 <meta property="og:site_name" content="Gomio">
@@ -39,7 +39,7 @@
   /* Tokens do tema escuro do site da Gomio (src/app/globals.css), copiados por
      valor. A demo é uma página da Gomio: mesma tinta, mesmo acento, mesmas
      fontes, mesma moldura. A estrutura (conversa de um lado, decisões do outro,
-     sem balão) é a do voice-demo, que é a outra demo da casa.
+     sem balão) é a mesma da demo de voz.
      Um acento só. Gravação, recusa e erro se distinguem por preenchimento, peso
      e texto, nunca por uma segunda cor. */
   :root{
@@ -153,7 +153,7 @@
   .cabeca b.alerta{color:var(--realce-forte)}
 
   /* ---------- Conversa: sem balão. Quem fala em rótulo micro, a fala do
-     agente com um fio à esquerda, como no voice-demo. */
+     agente com um fio à esquerda, como na demo de voz. */
   .chat{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}
   .fala{display:flex;flex-direction:column;gap:5px;animation:entra .45s var(--ease)}
   .fala p{white-space:pre-wrap;font-size:15px;line-height:1.6;max-width:62ch}
@@ -306,8 +306,7 @@
 
 <header class="ilha-wrap">
   <nav class="ilha" aria-label="Gomio">
-    <!-- Quem se impressiona com a demo precisa de um caminho para quem a fez.
-         Sem isto a página termina em si mesma. -->
+    <!-- A marca leva ao site de quem fez a demo. -->
     <a class="marca" href="https://gomio.com.br" target="_blank" rel="noopener"><span>Gomi<span class="o">o</span></span><span class="suf" data-t="marcaSuf"></span></a>
     <div class="nav">
       <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener" data-t="navErp"></a>

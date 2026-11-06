@@ -1,6 +1,6 @@
 """Teto diário e kill switch — é demo pública com chave paga atrás.
 
-Mesmo desenho já em produção no scraper, no voicerag e no searcher: consumo
+O desenho: consumo
 ANTES da chamada paga, estado em disco, fronteira de dia em UTC, kill switch por
 env var, e **recusa** (nunca reset) se o estado estiver corrompido ou ingravável.
 Falhar aberto aqui significa uma fatura aberta.
@@ -13,7 +13,7 @@ vezes um que roda uma, e o contador não enxergava a diferença: o teto dizia
 alguns dólares, dependendo de como as conversas do dia caíram. Um teto que não
 sabe quanto está segurando não é um teto, é uma esperança.
 
-O desenho é **reserva e reconcilia**, o mesmo do Transcripts: reserva-se uma
+O desenho é **reserva e reconcilia**: reserva-se uma
 estimativa antes da chamada (porque o custo real só existe depois dela) e
 ajusta-se pela diferença quando o `usage` volta. A reserva precisa ser maior que
 a mediana, senão o teto vaza; e não pode ser o pior caso absoluto, senão a demo

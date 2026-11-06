@@ -1,4 +1,4 @@
-"""Registry de tools — o contrato de `core-spec/tools.md` como enforcement.
+"""Registry de tools — o contrato das tools como enforcement.
 
 Os metadados do decorator não são documentação: o runtime lê e aplica antes de
 executar. É o que impede o modelo de pular a confirmação ou de exceder o teto de
@@ -30,7 +30,7 @@ PiiLevel = Literal["none", "low", "medium", "high"]
 
 
 class ToolError(BaseModel):
-    """Erro é retorno, não exceção (regra 6).
+    """Erro é retorno, não exceção.
 
     O agente precisa poder se recuperar e explicar. Exceção não tratada mata a
     conversa e o usuário final vê silêncio.
@@ -95,7 +95,7 @@ class AgentContext:
     Vale só para a mensagem seguinte: o fim de cada turno substitui o conjunto
     pelas propostas daquele turno, e uma proposta velha não sobrevive a uma
     conversa no meio nem a uma mudança de ideia.
-    É o gate do G-17, e ele mora no runtime justamente para o modelo não poder
+    É o gate de confirmação, e ele mora no runtime justamente para o modelo não poder
     pular: nenhuma instrução de prompt adiciona nada a este conjunto.
     """
     propostas_do_turno: set[str] = field(default_factory=set)
@@ -202,7 +202,7 @@ def tool(
         if scope == "write" and not confirm_fields:
             raise ValueError(f"{fn.__name__}: scope=write exige confirm_fields")
         if scope == "write" and not requires_confirmation:
-            # G-17 no caminho do código, não no prompt: uma tool de escrita sem
+            # Confirmação no caminho do código, não no prompt: uma tool de escrita sem
             # confirmação nem chega a ser registrada.
             raise ValueError(f"{fn.__name__}: scope=write exige requires_confirmation")
         REGISTRY[fn.__name__] = ToolSpec(
