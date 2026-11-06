@@ -30,7 +30,7 @@
 <!-- Inline: uma aba sem ícone parece página abandonada, e um /favicon.ico
      404ando era uma requisição perdida em toda visita. É o mesmo ícone de
      gomio.com.br: a demo é da Gomio, não de uma marca à parte. -->
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2314120E'/><circle cx='16' cy='16' r='6.5' fill='none' stroke='%23B24A18' stroke-width='3'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-2 -2 32 32'><style>path{fill:%23000}@media (prefers-color-scheme:dark){path{fill:%23fff}}</style><path d='M28 7L14 0L0 7L0 21L14 28L26 22L12 15L12 13L14 12L24 17L24 19L28 21L28 15L14 8L8 11L8 17L18 22L14 24L4 19L4 9L14 4L28 11Z'/></svg>">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,6 +47,8 @@
     --tinta:#f4f2ed; --tinta-2:#c9c2b3; --tinta-3:#9c9484;
     --linha:#322d24; --linha-forte:#443d31;
     --realce:#e8703a; --realce-forte:#f29063; --realce-lavado:#2b1d14;
+    /* Cor do logo: uma só, a tinta da página. Nenhuma parte recebe cor própria. */
+    --marca:#f4f2ed;
     --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
     --texto:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
     --mono:"IBM Plex Mono",ui-monospace,monospace;
@@ -90,9 +92,8 @@
   .ilha{pointer-events:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;
     max-width:var(--envelope);height:60px;margin:0 auto;padding:0 10px 0 22px;border:1px solid var(--linha);
     border-radius:999px;background:color-mix(in oklab,var(--fundo) 82%,transparent);backdrop-filter:blur(20px)}
-  .marca{font-family:var(--display);font-size:19px;font-weight:600;letter-spacing:-.04em;text-decoration:none;
-    display:flex;align-items:baseline;gap:8px;white-space:nowrap}
-  .marca .o{color:var(--realce)}
+  .marca{color:var(--marca);text-decoration:none;display:flex;align-items:center;gap:10px;white-space:nowrap}
+  .marca svg{display:block;width:124px;height:auto;flex:none}
   .marca .suf{font-family:var(--texto);font-size:13.5px;font-weight:400;letter-spacing:0;color:var(--tinta-3)}
   .nav{display:flex;align-items:center;gap:4px}
   .nav a{font-size:14px;color:var(--tinta-2);text-decoration:none;padding:8px 14px;border-radius:999px;
@@ -217,14 +218,10 @@
   .ev.negado,.ev.erro{background:var(--realce-lavado);border-color:transparent;box-shadow:inset 2px 0 0 var(--realce)}
   .ev.negado .tag,.ev.erro .tag{color:var(--realce-forte)}
   .ev.permitido .tag{color:var(--tinta-2)}
-  /* Custo de chamada: a linha mais discreta de propósito. Ela está em TODA
-     chamada paga, e com o peso das outras esconderia a decisão de política. */
+  /* Checagem interna do turno: a linha mais discreta de propósito. Com o peso
+     das outras, ela esconderia a decisão de política. */
   .ev.medida{border-style:dashed;background:transparent;padding:7px 14px;opacity:.78}
   .ev.medida:hover{opacity:1}
-  /* Cache que não leu é o único caso em que a linha de custo chama atenção:
-     é o sinal de invalidador silencioso de prefixo. */
-  .ev.semcache{opacity:1;border-color:color-mix(in oklab,var(--realce) 45%,var(--linha))}
-  .ev.semcache .tag{color:var(--realce-forte)}
   /* Versão da política ao lado do código da regra: é o que prova, meses
      depois, sob qual regra a decisão foi tomada. */
   .versao{color:var(--tinta-3);margin-left:6px;white-space:nowrap}
@@ -307,7 +304,7 @@
 <header class="ilha-wrap">
   <nav class="ilha" aria-label="Gomio">
     <!-- A marca leva ao site de quem fez a demo. -->
-    <a class="marca" href="https://gomio.com.br" target="_blank" rel="noopener"><span>Gomi<span class="o">o</span></span><span class="suf" data-t="marcaSuf"></span></a>
+    <a class="marca" href="https://gomio.com.br" target="_blank" rel="noopener"><svg viewBox="0 0 489.48 136" role="img" aria-label="Gomio" focusable="false"><g fill="currentColor"><path d="M136 34L68 0L0 34L0 102L68 136L126.29 106.86L58.29 72.86L58.29 63.14L68 58.29L116.57 82.57L116.57 92.29L136 102L136 72.86L68 38.86L38.86 53.43L38.86 82.57L87.43 106.86L68 116.57L19.43 92.29L19.43 43.71L68 19.43L136 53.43Z"/><path d="M210.48 120.43Q204.16 120.43 198.2 118.99Q192.23 117.55 187.32 114.88L191.82 105.53Q196.76 108.05 201.2 109.23Q205.64 110.42 210.14 110.42Q217.48 110.42 221.28 107.09Q225.07 103.75 225.07 97.22L225.07 91.09Q217.66 96.89 208.24 96.89Q200.28 96.89 193.74 93.02Q187.21 89.14 183.36 82.48Q179.52 75.81 179.52 67.64Q179.52 59.47 183.39 52.83Q187.26 46.19 193.85 42.34Q200.43 38.48 208.63 38.48Q213.15 38.48 217.4 39.9Q221.65 41.31 225.23 44.06L225.23 39.4L237.04 39.4L237.04 97.24Q237.04 108.43 230.18 114.43Q223.31 120.43 210.48 120.43ZM209.84 86.64Q214.57 86.64 218.51 84.97Q222.45 83.3 225.07 80.2L225.07 55.21Q222.45 52.23 218.47 50.53Q214.49 48.84 209.88 48.84Q204.61 48.84 200.4 51.32Q196.19 53.79 193.74 58.07Q191.3 62.34 191.3 67.64Q191.3 73 193.76 77.31Q196.22 81.62 200.44 84.13Q204.65 86.64 209.84 86.64ZM275.09 97.65Q266.73 97.65 259.92 93.72Q253.11 89.78 249.15 83.06Q245.19 76.34 245.19 68.02Q245.19 59.7 249.15 52.96Q253.11 46.23 259.92 42.29Q266.73 38.35 275.09 38.35Q283.49 38.35 290.27 42.29Q297.04 46.22 301.01 52.95Q304.98 59.69 304.98 68.01Q304.98 76.34 301.01 83.06Q297.04 89.79 290.27 93.72Q283.49 97.65 275.09 97.65ZM275.09 87.16Q280.19 87.16 284.3 84.6Q288.4 82.03 290.82 77.69Q293.25 73.35 293.25 68.02Q293.25 62.59 290.83 58.28Q288.41 53.97 284.28 51.41Q280.16 48.84 275.09 48.84Q270.02 48.84 265.89 51.41Q261.76 53.97 259.34 58.28Q256.92 62.58 256.92 68.02Q256.92 73.35 259.34 77.69Q261.76 82.03 265.89 84.59Q270.01 87.16 275.09 87.16ZM313.13 96.53L313.13 39.4L325.1 39.4L325.1 44.66Q331.43 38.28 340.89 38.28Q346.68 38.28 351.22 40.79Q355.76 43.29 358.49 47.69Q362 43.01 366.84 40.65Q371.69 38.28 377.7 38.28Q384.06 38.28 388.85 41.12Q393.64 43.97 396.39 49.01Q399.14 54.06 399.14 60.75L399.14 96.53L387.24 96.53L387.24 62.72Q387.24 56.21 383.81 52.43Q380.39 48.66 374.57 48.66Q370.58 48.66 367.29 50.51Q364 52.35 361.65 56.05Q361.84 57.15 361.96 58.31Q362.09 59.47 362.09 60.75L362.09 96.53L350.18 96.53L350.18 62.72Q350.18 56.21 346.76 52.43Q343.34 48.66 337.59 48.66Q333.67 48.66 330.5 50.35Q327.34 52.03 325.1 55.34L325.1 96.53ZM409.63 96.53L409.63 39.4L421.6 39.4L421.6 96.53ZM415.61 30.66Q412.66 30.66 410.52 28.52Q408.39 26.38 408.39 23.43Q408.39 20.4 410.52 18.3Q412.66 16.2 415.61 16.2Q418.65 16.2 420.74 18.3Q422.84 20.4 422.84 23.43Q422.84 26.38 420.74 28.52Q418.65 30.66 415.61 30.66ZM459.58 97.65Q451.23 97.65 444.42 93.72Q437.61 89.78 433.65 83.06Q429.69 76.34 429.69 68.02Q429.69 59.7 433.65 52.96Q437.61 46.23 444.42 42.29Q451.23 38.35 459.58 38.35Q467.99 38.35 474.77 42.29Q481.54 46.22 485.51 52.95Q489.48 59.69 489.48 68.01Q489.48 76.34 485.51 83.06Q481.54 89.79 474.77 93.72Q467.99 97.65 459.58 97.65ZM459.58 87.16Q464.69 87.16 468.79 84.6Q472.9 82.03 475.32 77.69Q477.75 73.35 477.75 68.02Q477.75 62.59 475.33 58.28Q472.91 53.97 468.78 51.41Q464.66 48.84 459.59 48.84Q454.52 48.84 450.39 51.41Q446.26 53.97 443.84 58.28Q441.42 62.58 441.42 68.02Q441.42 73.35 443.84 77.69Q446.26 82.03 450.39 84.59Q454.51 87.16 459.58 87.16Z"/></g></svg><span class="suf" data-t="marcaSuf"></span></a>
     <div class="nav">
       <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener" data-t="navErp"></a>
       <!--contato--><a href="https://gomio.com.br" target="_blank" rel="noopener" data-t="navGomio"></a><!--/contato-->
@@ -376,12 +373,11 @@
             <div class="log-painel">
               <div class="cabeca">
                 <span class="micro" data-t="cabecaLog"></span>
-                <!-- O que esta conversa custou de verdade, somando toda chamada paga.
-                     Fica ao lado do log porque e a mesma promessa: o que a demo
-                     afirma, ela mostra acontecendo. -->
+                <!-- As recusas ficam ao lado do log porque são a promessa da demo: o que
+                     ela afirma, ela mostra acontecendo. Custo, modelo e latência não
+                     aparecem: métrica de desenvolvimento não é conteúdo para quem visita. -->
                 <span class="dir">
                   <span><span data-t="recusasRotulo"></span> <b id="recusas" class="num">0</b></span>
-                  <span data-t-title="gastoTitulo"><span data-t="gastoRotulo"></span> <b id="gasto" class="num">US$ 0,0000</b></span>
                 </span>
               </div>
               <div class="log" id="log" aria-live="polite"></div>
@@ -437,7 +433,7 @@ const T = {
   pt: {
     htmlLang: "pt-BR", locale: "pt-BR",
     titulo: "Aurora, clínica fictícia: agenda com escrita em sistema · demo Gomio",
-    marcaSuf: "demo de operações",
+    marcaSuf: "demonstração",
     navErp: "API do ERP", navGomio: "o que a Gomio faz",
     heroTitulo: "Ela grava na agenda. Ou diz por que não.",
     heroTexto: "Agenda com escrita em sistema: um agente que marca, remarca e cancela numa agenda e só grava depois da confirmação. O cenário é uma clínica fictícia; os pacientes e o sistema de agenda também são fictícios. Cada decisão aparece ao lado, com a regra que decidiu.",
@@ -459,10 +455,8 @@ const T = {
     erpNota: 'Este ERP é outro processo, com API pública: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">documentação técnica</a> (em inglês).',
     cabecaLog: "registro de decisões",
     recusasRotulo: "recusas",
-    gastoRotulo: "custo",
-    gastoTitulo: "Quanto esta conversa custou até agora, em dólares (US$), pelas tarifas de pricing.yaml",
     logVazio: "Cada consulta à agenda, cada decisão de regra e cada gravação aparece aqui, com o código da regra que decidiu.",
-    limites: '<strong>Limites da demo.</strong> Sessão anônima com agenda própria e isolada, no máximo 3 alterações por conversa e teto diário de gasto em dólares, reservado antes de cada chamada paga e conferido depois pelo uso real. Há um botão de desligar geral, e nada fica guardado depois da sessão.',
+    limites: '<strong>Limites da demo.</strong> Sessão anônima com agenda própria e isolada, no máximo 3 alterações por conversa e teto diário de gasto, reservado antes de cada chamada paga e conferido depois pelo uso real. Há um botão de desligar geral, e nada fica guardado depois da sessão.',
     fimTitulo: "Quer isso na agenda ou no ERP da sua empresa?",
     fimTexto: "A Gomio monta o fluxo nos sistemas que você já usa. As suas regras decidem, o agente executa, e cada passo fica registrado.",
     fimCta: "Ver como a Gomio implementa",
@@ -530,8 +524,7 @@ const T = {
       leitura: "ferramenta · leitura", escrita: "ferramenta · escrita", gate: "confirmação retida",
       gateTexto: (t) => `<b>${t}</b> não executada: esperando a pessoa confirmar`,
       permitida: "permitida", recusada: "recusada", regra: "regra", versaoRegra: "regra",
-      gravado: "gravado", resultado: "resultado", falhou: "falhou", llm: "chamada ao modelo",
-      cacheLido: (n) => `cache lido ${n}`, semCache: "sem leitura de cache", tarifas: "tarifas",
+      gravado: "gravado", resultado: "resultado", falhou: "falhou",
       encerrada: "encerrada", simulado: "encaminhamento simulado",
       provedor: "provedor", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "a gravação anterior foi mantida" : "turno desfeito, nada gravado"}`,
       proposta: "proposta",
@@ -547,7 +540,7 @@ const T = {
   en: {
     htmlLang: "en", locale: "en-US",
     titulo: "Aurora, a fictional clinic: scheduling that writes to a system · Gomio demo",
-    marcaSuf: "operations demo",
+    marcaSuf: "demo",
     navErp: "ERP API", navGomio: "what Gomio does",
     heroTitulo: "It writes to the schedule. Or says why not.",
     heroTexto: "Scheduling that writes to a system: an agent that books, reschedules and cancels appointments and only writes after you confirm. The setting is a fictional clinic; the patients and the scheduling system are fictional too. Every decision shows up alongside, with the rule that made it.",
@@ -569,10 +562,8 @@ const T = {
     erpNota: 'This ERP is a separate process with a public API: <a href="https://aurora-erp.pgdev.com.br/docs" target="_blank" rel="noopener">API reference</a>.',
     cabecaLog: "decision log",
     recusasRotulo: "refusals",
-    gastoRotulo: "cost",
-    gastoTitulo: "What this conversation has cost so far, in US dollars, at the rates in pricing.yaml",
     logVazio: "Every schedule lookup, every policy decision and every write shows up here, with the code of the rule that decided it.",
-    limites: '<strong>Demo limits.</strong> Anonymous session with its own isolated schedule, at most 3 changes per conversation and a daily spend ceiling in dollars, reserved before each paid call and reconciled against real usage after. There is a kill switch, and nothing persists after the session.',
+    limites: '<strong>Demo limits.</strong> Anonymous session with its own isolated schedule, at most 3 changes per conversation and a daily spend ceiling, reserved before each paid call and reconciled against real usage after. There is a kill switch, and nothing persists after the session.',
     fimTitulo: "Want this on your company's schedule or ERP?",
     fimTexto: "Gomio builds the flow into the systems you already use. Your rules decide, the agent executes, and every step is logged.",
     fimCta: "See how Gomio builds it",
@@ -635,8 +626,7 @@ const T = {
       leitura: "tool · read", escrita: "tool · write", gate: "confirmation held",
       gateTexto: (t) => `<b>${t}</b> not executed: waiting for the person to confirm`,
       permitida: "allowed", recusada: "refused", regra: "policy", versaoRegra: "policy",
-      gravado: "written", resultado: "result", falhou: "failed", llm: "model call",
-      cacheLido: (n) => `cache read ${n}`, semCache: "no cache read", tarifas: "rates",
+      gravado: "written", resultado: "result", falhou: "failed",
       encerrada: "closed", simulado: "simulated handoff",
       provedor: "provider", provedorTexto: (c, g) => `<b>${c}</b>, ${g ? "the previous write was kept" : "turn rolled back, nothing written"}`,
       proposta: "proposal",
@@ -665,9 +655,7 @@ function aplicarIdioma() {
   document.title = t().titulo;
   document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = t()[el.dataset.t]; });
   document.querySelectorAll("[data-t-html]").forEach((el) => { el.innerHTML = t()[el.dataset.tHtml]; });
-  document.querySelectorAll("[data-t-title]").forEach((el) => { el.title = t()[el.dataset.tTitle]; });
   $("#idioma").textContent = t().idiomaBotao;
-  $("#gasto").textContent = usd(gastoUsd);
   $("#chaos").textContent = $("#chaos").getAttribute("aria-pressed") === "true" ? t().chaosLigado : t().chaos;
   $("#entrada").placeholder = encerrada ? t().placeholderEncerrada : t().placeholder;
   if (log.querySelector(".vazio") || !log.children.length) log.innerHTML = `<p class="vazio">${esc(t().logVazio)}</p>`;
@@ -713,28 +701,6 @@ function evento(tag, html, classe = "", titulo = "") {
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
-// Custo de turno vive na casa dos milesimos de dolar, entao duas casas mostram
-// "US$ 0,00" para tudo e a linha nao prova nada. Quatro casas ate um centavo, duas
-// dai pra cima: o numero fica legivel nas duas escalas sem notacao cientifica.
-// A moeda continua sendo dolar, porque e em dolar que o provedor cobra; o que segue
-// o idioma e a escrita: "US$ 0,0000" em portugues, "$0.0000" em ingles.
-function usd(v) {
-  const n = Number(v) || 0;
-  const casas = n < 0.01 ? 4 : 2;
-  return new Intl.NumberFormat(t().locale, {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: casas, maximumFractionDigits: casas,
-  }).format(n).replace(/\u00a0/g, " ");
-}
-
-// O total fica guardado para ser reescrito na troca de idioma: sem isto o valor
-// ficaria na formatacao do idioma anterior ate a proxima chamada paga.
-let gastoUsd = 0;
-function mostrarGasto(v) {
-  gastoUsd = Number(v) || 0;
-  $("#gasto").textContent = usd(gastoUsd);
 }
 
 function hora(iso) {
@@ -941,17 +907,10 @@ function renderizar(tipo, d) {
         d.allowed ? "permitido" : "negado",
         t().regras[d.reason_code] || "");
       break;
-    case "usage": {
-      // `cache read` fica visivel porque e o numero que denuncia invalidador
-      // silencioso de prefixo.
-      const cache = d.cache_hit ? L.cacheLido(d.cache_read_tokens.toLocaleString(t().locale)) : L.semCache;
-      evento(L.llm,
-        `<b>${esc(d.modelo)}</b> · ${d.latencia_ms} ms, <b>${usd(d.usd_turno)}</b>, ${cache}`
-          + (d.rates_version ? `<span class="versao"> · ${L.tarifas} ${esc(d.rates_version)}</span>` : ""),
-        d.cache_hit ? "medida" : "medida semcache");
-      mostrarGasto(d.usd_conversa);
+    case "usage":
+      // O servidor segue medindo e enviando. Fica fora da tela porque métrica de
+      // desenvolvimento não é conteúdo para quem visita.
       break;
-    }
     case "write":
       evento(L.gravado, `<b>${esc(d.tool)}</b> ${esc(JSON.stringify(d.resultado))}`, "write");
       break;
@@ -988,9 +947,6 @@ function renderizar(tipo, d) {
       bolha(d.codigo === "agent_internal_error" ? t().erroInterno : t().indisponivel, "sistema");
       break;
     case "done":
-      // Um turno pode terminar sem nenhuma chamada paga. Sem isto o total
-      // ficaria parado no valor do turno anterior.
-      if (d.usd_conversa !== undefined) mostrarGasto(d.usd_conversa);
       // A proposta retida aparece depois da fala do modelo, como a frase da
       // página sobre o que o "sim" vai gravar.
       for (const o of pendentes) bolha(t().pendente(o), "sistema");
@@ -1054,8 +1010,6 @@ $("#reset").addEventListener("click", async () => {
   ultimoEstadoAgenda = new Map();
   // Agenda nova, semeada de novo: a marca da gravação anterior não vale mais.
   agenda.querySelectorAll("tr.mudou").forEach((tr) => tr.classList.remove("mudou", "sem-clarao"));
-  // O total e POR CONVERSA, e o reset comeca uma conversa nova.
-  mostrarGasto(0);
   recusas = 0;
   $("#recusas").textContent = "0";
   travar(false);

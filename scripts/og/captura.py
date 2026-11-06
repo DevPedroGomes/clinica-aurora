@@ -8,14 +8,17 @@ Custa algumas chamadas pagas (cerca de US$ 0,03). Uso, num venv:
     pip install playwright
     python scripts/og/captura.py   # usa o Chrome instalado (channel="chrome")
     python scripts/og/render.py
+
+AURORA_URL troca o endereço capturado; sem ela, vale o de produção.
 """
 
+import os
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 AQUI = Path(__file__).parent
-URL = "https://aurora.pgdev.com.br/?lang=pt"
+URL = os.environ.get("AURORA_URL", "https://aurora.pgdev.com.br/?lang=pt")
 
 
 def esperar_resposta(pagina, antes: int) -> None:
@@ -59,8 +62,6 @@ with sync_playwright() as p:
     pagina.wait_for_timeout(400)
     pagina.screenshot(path=str(AQUI / "prod_gravado.png"))
     pagina.locator(".painel-envelope .bezel").screenshot(path=str(AQUI / "painel.png"))
-    print(
-        "recusas:", pagina.inner_text("#recusas"), "custo:", pagina.inner_text("#gasto")
-    )
+    print("recusas:", pagina.inner_text("#recusas"))
     print("linha marcada:", pagina.inner_text("tr.mudou"))
     navegador.close()
